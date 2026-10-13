@@ -1,0 +1,18 @@
+# Termos sync server. Put it behind HTTPS (see Caddyfile.example) before using it over the internet.
+services:
+  termos:
+    build: .
+    image: termos-server:0.1.0
+    restart: unless-stopped
+    environment:
+      # first  = only the first account may sign up (that account becomes admin)
+      # invite = anyone with TERMOS_INVITE_CODE may sign up
+      # open   = anyone who can reach the server may sign up
+      TERMOS_SIGNUP: first
+      # TERMOS_INVITE_CODE: change-me
+      # Set to 1 when a reverse proxy sets X-Forwarded-For (used for login rate limiting).
+      TERMOS_TRUST_PROXY: "1"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"

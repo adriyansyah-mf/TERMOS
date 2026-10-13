@@ -1,0 +1,5 @@
+# Caddy gets and renews a TLS certificate automatically.
+# Replace the domain, point its DNS at this machine, then: caddy run --config Caddyfile
+termos.example.com {
+	reverse_proxy 127.0.0.1:8080
+}
