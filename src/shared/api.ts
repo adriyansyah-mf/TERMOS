@@ -23,6 +23,13 @@ export interface SyncStatus {
   teams: { id: string; label: string; role?: string }[]
 }
 
+export interface ShareInfo {
+  sessionId: string
+  link: string
+  allowInput: boolean
+  viewers: { id: string; username: string }[]
+}
+
 export interface SyncDevice {
   id: string
   name: string
@@ -100,6 +107,12 @@ export interface TermosApi {
   teamAddMember(teamId: string, username: string): void
   teamRemoveMember(teamId: string, userId: string): void
   teamDelete(teamId: string): void
+
+  shareStart(sessionId: string, allowInput: boolean): ShareInfo
+  shareStop(sessionId: string): void
+  shareSetInput(sessionId: string, allow: boolean): void
+  shareKick(sessionId: string, viewer: string): void
+  shareList(): ShareInfo[]
 
   sessionOpen(req: OpenSessionRequest): { sessionId: string; label: string }
   sessionClose(id: string): void
@@ -197,6 +210,7 @@ export interface TermosEvents {
   'forwards:status': ForwardStatus[]
   'sftp:progress': TransferProgress
   'sync:status': SyncStatus
+  'share:status': ShareInfo[]
 }
 
 export interface PreloadBridge {

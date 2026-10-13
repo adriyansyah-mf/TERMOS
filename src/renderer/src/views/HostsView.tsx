@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Group, Host } from '../../../shared/types'
 import { api, errMsg } from '../api'
 import { useStore } from '../store'
-import { confirmDialog, timeAgo } from '../lib'
+import { confirmDialog, promptOne, timeAgo } from '../lib'
 import { HostPicker } from '../components/HostPicker'
 import { GroupEditor, HostEditor } from './HostEditor'
 
@@ -82,6 +82,14 @@ export function HostsView(): React.JSX.Element {
 
   const openLocal = (): void =>
     void openSession({ kind: 'adhoc', host: { label: 'Lokal', protocol: 'local', address: '' } })
+
+  const joinShared = async (): Promise<void> => {
+    const invite = await promptOne(
+      'Gabung sesi bersama',
+      'Link dari rekan (https://server/share/…#kunci)'
+    )
+    if (invite?.trim()) void openSession({ kind: 'multiplayer', invite: invite.trim() })
+  }
 
   const crumbs: Group[] = []
   for (let g = group; g; g = data.groups.find((x) => x.id === g!.parentId)) crumbs.unshift(g)
@@ -164,6 +172,9 @@ export function HostsView(): React.JSX.Element {
             </button>
             <button className="btn" onClick={openLocal}>
               Terminal lokal
+            </button>
+            <button className="btn" onClick={joinShared}>
+              Gabung sesi bersama
             </button>
           </div>
         </div>
@@ -268,6 +279,9 @@ export function HostsView(): React.JSX.Element {
           </button>
           <button className="btn sm" onClick={openLocal} title="Ctrl+Shift+T">
             Terminal lokal
+          </button>
+          <button className="btn sm" onClick={joinShared}>
+            Gabung sesi bersama
           </button>
           <span className="dim small">
             Klik dua kali atau tekan Enter pada baris untuk menghubungkan.

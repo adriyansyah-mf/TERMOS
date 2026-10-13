@@ -9,6 +9,7 @@ import type { Host, OpenSessionRequest, ProxmoxServer, Snippet } from '../../sha
 import { connectSsh, resolveHost, type ResolvedHost } from '../ssh/connect'
 import { startHostForwards } from '../forwards'
 import { proxmoxClient } from '../proxmox'
+import { joinShare, parseInvite } from '../sharing'
 import { vault } from '../vault'
 import { sessions, type Backend, type SessionContext } from './manager'
 
@@ -419,6 +420,21 @@ export async function openSession(req: OpenSessionRequest): Promise<OpenedSessio
     label = p.label
     resolvedTarget = p.target
     afterConnect = p.command
+  } else if (target.kind === 'multiplayer') {
+    parseInvite(target.invite) // validate before opening a tab
+    const ctx = sessions.create('Sesi bersama')
+    ctx.setStatus('connecting')
+    joinShare(ctx, target.invite).then(
+      (backend) => {
+        sessions.setBackend(ctx.id, backend)
+        ctx.setStatus('connected')
+      },
+      (err: Error) => {
+        ctx.emitData(`\r\n\x1b[31m✖ ${err.message}\x1b[0m\r\n`)
+        ctx.setStatus('error', err.message)
+      }
+    )
+    return { sessionId: ctx.id, label: 'Sesi bersama' }
   } else {
     throw new Error('Jenis sesi ini belum didukung')
   }

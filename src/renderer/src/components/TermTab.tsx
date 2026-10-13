@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useStore, type Tab } from '../store'
 import { HostPicker } from './HostPicker'
+import { ShareDialog } from './ShareDialog'
 import { SftpPanel } from './SftpPanel'
 import { TerminalPane, type TerminalHandle } from './TerminalPane'
 
@@ -13,6 +14,7 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
   const [showSnippets, setShowSnippets] = useState(false)
   const [search, setSearch] = useState('')
   const [broadcast, setBroadcast] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   const focusedPane = tab.panes[tab.focused] ?? tab.panes[0]
   const focusedHost = hosts.find((h) => h.id === focusedPane?.hostId)
@@ -53,6 +55,14 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           }
         >
           SFTP
+        </button>
+        <button
+          className="btn sm"
+          disabled={!focusedPane || focusedPane.target.kind === 'multiplayer'}
+          onClick={() => setSharing(true)}
+          title="Bagikan panel aktif secara live lewat server sync"
+        >
+          Bagikan
         </button>
         <div style={{ position: 'relative' }}>
           <button
@@ -155,6 +165,13 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           />
         )}
       </div>
+      {sharing && focusedPane && (
+        <ShareDialog
+          sessionId={focusedPane.sessionId}
+          label={focusedPane.label}
+          onClose={() => setSharing(false)}
+        />
+      )}
       {picking && (
         <HostPicker
           title="Buka di panel baru"

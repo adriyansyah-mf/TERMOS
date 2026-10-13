@@ -8,6 +8,7 @@ import { listSerialPorts, openSession } from './sessions/backends'
 import { sessions } from './sessions/manager'
 import { sftpManager } from './sftp'
 import { importSshConfig } from './sshconfig'
+import { sharing } from './sharing'
 import { sync } from './sync'
 import { vault } from './vault'
 
@@ -48,6 +49,7 @@ const handlers: Handlers = {
   },
   vaultLock: () => {
     sync.stop()
+    sharing.stopAll()
     sessions.closeAll()
     forwards.stopAll()
     sftpManager.closeAll()
@@ -77,6 +79,12 @@ const handlers: Handlers = {
   teamAddMember: (id, user) => sync.addMember(id, user),
   teamRemoveMember: (id, userId) => sync.removeMember(id, userId),
   teamDelete: (id) => sync.deleteTeam(id),
+
+  shareStart: (id, allow) => sharing.start(id, allow),
+  shareStop: (id) => sharing.stop(id),
+  shareSetInput: (id, allow) => sharing.setAllowInput(id, allow),
+  shareKick: (id, viewer) => sharing.kick(id, viewer),
+  shareList: () => sharing.list(),
 
   sessionOpen: (req) => openSession(req),
   sessionClose: (id) => sessions.close(id),
@@ -194,11 +202,13 @@ export function registerIpc(window: BrowserWindow): void {
   vault.on('locked', () => emit('vault:locked'))
   forwards.on('status', (s) => emit('forwards:status', s))
   sync.on('status', (s) => emit('sync:status', s))
+  sharing.on('status', (s) => emit('share:status', s))
   sftpManager.onProgress = (p) => emit('sftp:progress', p)
 }
 
 export function shutdown(): void {
   sync.stop()
+  sharing.stopAll()
   sessions.closeAll()
   forwards.stopAll()
   sftpManager.closeAll()
