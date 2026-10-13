@@ -1,0 +1,162 @@
+# Builds Termos installers and publishes them as a GitHub Release.
+#
+#   git tag v0.2.0 && git push origin v0.2.0     -> builds and publishes release v0.2.0
+#   Actions tab -> Release -> Run workflow       -> test build only (artifacts, no release)
+#
+# Outputs: .AppImage, .deb, .rpm (Linux x64) and a setup .exe (Windows x64),
+# plus SHA256SUMS and signed build provenance for every file.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+# Default: read-only token. Only the publish job gets write access.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-24.04
+            builder: --linux AppImage deb rpm --x64
+            files: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/*.rpm
+          - name: windows
+            os: windows-2022
+            builder: --win nsis --x64
+            files: |
+              dist/*.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm build-essential python3
+
+      - name: Version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag $GITHUB_REF_NAME is not a semver version" >&2
+            exit 1
+          fi
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        # postinstall rebuilds node-pty / serialport against Electron's ABI
+        run: npm ci --no-audit --no-fund
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Typecheck and lint
+        run: |
+          npm run typecheck
+          npx eslint src
+
+      - name: Crypto tests
+        run: npm run test:crypto
+
+      - name: Build app
+        run: npx electron-vite build
+
+      - name: Package
+        shell: bash
+        run: npx electron-builder ${{ matrix.builder }} --publish never
+
+      - name: Upload installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: termos-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: termos-*
+          path: release
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: release
+        run: |
+          ls -la
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Termos ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.exe
+            release/SHA256SUMS
+          body: |
+            ## Unduh
+
+            | Sistem | File |
+            |---|---|
+            | Debian / Ubuntu / Kali | `termos-*-amd64.deb` (`sudo apt install ./termos-*-amd64.deb`) |
+            | Fedora / RHEL / openSUSE | `termos-*-x86_64.rpm` (`sudo dnf install ./termos-*-x86_64.rpm`) |
+            | Linux lain | `termos-*-x86_64.AppImage` (`chmod +x` lalu jalankan) |
+            | Windows 10/11 | `termos-*-setup-x64.exe` |
+
+            ## Verifikasi file
+
+            ```
+            sha256sum -c SHA256SUMS --ignore-missing
+            gh attestation verify <file> --repo ${{ github.repository }}
+            ```
+
+            Installer Windows belum ditandatangani (code signing), jadi SmartScreen bisa memberi peringatan.

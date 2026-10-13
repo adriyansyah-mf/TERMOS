@@ -10,12 +10,22 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!.claude/**'
+  - '!server/**'
+  - '!test/**'
+  - '!anti-slop/**'
+  - '!.github/**'
 asarUnpack:
   - resources/**
 win:
   executableName: termos
+  target:
+    - target: nsis
+      arch: [x64]
 nsis:
-  artifactName: termos-${version}-setup.${ext}
+  artifactName: termos-${version}-setup-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -28,6 +38,7 @@ linux:
   target:
     - AppImage
     - deb
+    - rpm
   executableName: termos
   maintainer: Termos <termos@localhost>
   category: Utility;TerminalEmulator;Network
@@ -43,6 +54,18 @@ deb:
     - libsecret-1-0
     - libnss3
     - libxtst6
+rpm:
+  artifactName: termos-${version}-${arch}.${ext}
+  depends:
+    - libsecret
+    - nss
+    - libXtst
+  fpm:
+    # rpm >= 4.14 tries to add build-id links for Electron's binaries and fails.
+    - --rpm-rpmbuild-define
+    - _build_id_links none
+# Updates come from GitHub Releases built by .github/workflows/release.yml; never auto-publish.
+publish: null
 npmRebuild: false
 # Electron fuses are flipped on the packaged binary (no RUN_AS_NODE, NODE_OPTIONS, --inspect).
 afterPack: build/afterPack.cjs
