@@ -9,6 +9,7 @@ import {
 import { b64, open, seal, unb64, type SealedBox } from './crypto'
 import {
   deriveAccountKeys,
+  keyFingerprint,
   newAccountKdf,
   newKeyPair,
   openSealed,
@@ -29,6 +30,7 @@ export interface SyncStatus {
   lastSyncAt?: number
   lastError?: string
   syncing: boolean
+  fingerprint?: string
   teams: { id: string; label: string; role?: string }[]
 }
 
@@ -63,6 +65,11 @@ interface Payload {
 }
 
 const PRIVATE_V4 = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/
+
+/** Associated data that pins a record's ciphertext to where and when it was written. */
+function recordAad(scope: string, id: string, updatedAt: number, deleted: boolean): string {
+  return `termos-record-v1|${scope}|${id}|${updatedAt}|${deleted ? 1 : 0}`
+}
 
 /** HTTPS everywhere, except localhost and private LAN addresses (self-hosted on a home network). */
 export function normalizeServerUrl(input: string): string {
@@ -133,6 +140,7 @@ class SyncService extends EventEmitter {
       lastSyncAt: s.lastSyncAt,
       lastError: s.lastError,
       syncing: this.syncing,
+      fingerprint: s.publicKey ? keyFingerprint(s.publicKey) : undefined,
       teams: vault.get().teams.map((t) => ({ id: t.id, label: t.label, role: t.role }))
     }
   }
@@ -160,9 +168,9 @@ class SyncService extends EventEmitter {
         username,
         authKey,
         kdf,
-        wrappedKey: wrap(encKey, syncKey),
+        wrappedKey: wrap(encKey, syncKey, 'syncKey'),
         publicKey: pair.publicKey,
-        wrappedPrivateKey: wrap(encKey, pair.privateKey),
+        wrappedPrivateKey: wrap(encKey, pair.privateKey, 'privateKey'),
         deviceName: `Termos di ${hostname()}`,
         inviteCode: inviteCode || undefined
       },
@@ -194,8 +202,8 @@ class SyncService extends EventEmitter {
       publicKey: string
       wrappedPrivateKey: SealedBox
     }>('POST', '/login', { username, authKey, deviceName: `Termos di ${hostname()}` }, base)
-    const syncKey = unwrap(encKey, r.wrappedKey)
-    const privateKey = unwrap(encKey, r.wrappedPrivateKey)
+    const syncKey = unwrap(encKey, r.wrappedKey, 'syncKey')
+    const privateKey = unwrap(encKey, r.wrappedPrivateKey, 'privateKey')
     this.adoptAccount(
       base,
       r.username,
@@ -278,8 +286,8 @@ class SyncService extends EventEmitter {
       authKey: old.authKey,
       newAuthKey: next.authKey,
       kdf,
-      wrappedKey: wrap(next.encKey, unb64(s.syncKey!)),
-      wrappedPrivateKey: wrap(next.encKey, unb64(s.privateKey!))
+      wrappedKey: wrap(next.encKey, unb64(s.syncKey!), 'syncKey'),
+      wrappedPrivateKey: wrap(next.encKey, unb64(s.privateKey!), 'privateKey')
     })
   }
 
@@ -305,20 +313,40 @@ class SyncService extends EventEmitter {
     this.emit('status', this.status())
   }
 
-  async addMember(teamId: string, username: string): Promise<void> {
+  /** Step 1 of adding a member: show their key fingerprint so it can be checked out-of-band. */
+  async previewMember(username: string): Promise<{ username: string; fingerprint: string }> {
+    const u = await this.call<{ username: string; publicKey: string }>(
+      'GET',
+      `/users/${encodeURIComponent(username)}/key`
+    )
+    return { username: u.username, fingerprint: keyFingerprint(u.publicKey) }
+  }
+
+  /**
+   * Step 2: seal the team key to the member, but only if the server still hands out
+   * the key whose fingerprint the user confirmed.
+   */
+  async addMember(teamId: string, username: string, expectedFingerprint: string): Promise<void> {
     const team = this.team(teamId)
     const u = await this.call<{ userId: string; publicKey: string }>(
       'GET',
       `/users/${encodeURIComponent(username)}/key`
     )
+    if (keyFingerprint(u.publicKey) !== expectedFingerprint)
+      throw new Error('Fingerprint kunci berubah sejak dicek. Anggota tidak ditambahkan.')
     await this.call('POST', `/teams/${teamId}/members`, {
       userId: u.userId,
       wrappedTeamKey: sealTo(u.publicKey, unb64(team.key))
     })
   }
 
-  members(teamId: string): Promise<{ userId: string; username: string; role: string }[]> {
-    return this.call('GET', `/teams/${teamId}/members`)
+  async members(
+    teamId: string
+  ): Promise<{ userId: string; username: string; role: string; fingerprint: string }[]> {
+    const list = await this.call<
+      { userId: string; username: string; role: string; publicKey: string }[]
+    >('GET', `/teams/${teamId}/members`)
+    return list.map(({ publicKey, ...m }) => ({ ...m, fingerprint: keyFingerprint(publicKey) }))
   }
 
   async removeMember(teamId: string, userId: string): Promise<void> {
@@ -384,17 +412,23 @@ class SyncService extends EventEmitter {
       if (!key) continue
       let payload: Payload
       try {
-        payload = JSON.parse(open(key, JSON.parse(r.blob)))
+        // The AAD makes the server unable to move a record, change its timestamp or flip its deleted flag.
+        payload = JSON.parse(
+          open(key, JSON.parse(r.blob), recordAad(r.scope, r.id, r.updatedAt, r.deleted))
+        )
       } catch {
-        continue // written with a key we do not have (e.g. before a team key was shared)
+        continue // tampered, or written with a key we do not have
       }
-      if (!SYNCED_COLLECTIONS.includes(payload.c)) continue
+      if (!payload || !SYNCED_COLLECTIONS.includes(payload.c)) continue
+      if (!r.deleted && (!payload.e || typeof payload.e !== 'object')) continue
       const local = (d[payload.c] as Entity[]).find((e) => e.id === r.id)
       if (local && local.updatedAt >= r.updatedAt) continue
+      // Where a record lives is decided by its scope, never by what the payload claims.
+      const teamId = r.scope.startsWith('t:') ? r.scope.slice(2) : undefined
       const entity: Entity =
         r.deleted || !payload.e
           ? { id: r.id, updatedAt: r.updatedAt, deleted: true, teamId: local?.teamId }
-          : { ...payload.e, id: r.id, updatedAt: r.updatedAt }
+          : { ...payload.e, id: r.id, updatedAt: r.updatedAt, teamId }
       // A tombstone from a scope the entity has since left must not delete it.
       if (r.deleted && local && !local.deleted && this.scopeOf(local) !== r.scope) continue
       vault.applyRemote(payload.c, entity)
@@ -434,7 +468,9 @@ class SyncService extends EventEmitter {
           id: e.id,
           updatedAt: e.updatedAt,
           deleted: !!e.deleted,
-          blob: JSON.stringify(seal(key, JSON.stringify(payload)))
+          blob: JSON.stringify(
+            seal(key, JSON.stringify(payload), recordAad(scope, e.id, e.updatedAt, !!e.deleted))
+          )
         })
         pending.push({ id: e.id, t: e.updatedAt, s: scope })
         // Moved between personal and team vault: retire the copy in the old scope.
@@ -446,7 +482,13 @@ class SyncService extends EventEmitter {
               id: e.id,
               updatedAt: e.updatedAt - 1,
               deleted: true,
-              blob: JSON.stringify(seal(oldKey, JSON.stringify({ c, e: null } satisfies Payload)))
+              blob: JSON.stringify(
+                seal(
+                  oldKey,
+                  JSON.stringify({ c, e: null } satisfies Payload),
+                  recordAad(prev.s, e.id, e.updatedAt - 1, true)
+                )
+              )
             })
         }
       }

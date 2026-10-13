@@ -39,8 +39,16 @@ export async function deriveAccountKeys(
   password: string,
   kdf: AccountKdf
 ): Promise<{ authKey: string; encKey: Uint8Array }> {
-  if (kdf.alg !== 'argon2id' || kdf.m < 8192 || kdf.t < 1)
-    throw new Error('Parameter KDF server tidak aman')
+  // The server hands out these parameters at prelogin. A malicious server could offer
+  // weak ones to make the authKey it receives cheap to brute-force, so refuse them.
+  if (
+    kdf?.alg !== 'argon2id' ||
+    !(kdf.m >= 65536 && kdf.m <= 1048576) ||
+    !(kdf.t >= 3 && kdf.t <= 20) ||
+    !(kdf.p >= 1 && kdf.p <= 8) ||
+    unb64(kdf.salt ?? '').length !== 16
+  )
+    throw new Error('Server memberi parameter kunci yang lemah atau tidak valid; login dibatalkan')
   const master = await argon2idAsync(password, unb64(kdf.salt), {
     m: kdf.m,
     t: kdf.t,
@@ -62,13 +70,18 @@ export function randomKey(): Uint8Array {
   return new Uint8Array(randomBytes(32))
 }
 
-export function wrap(key: Uint8Array, secret: Uint8Array): SealedBox {
-  return seal(key, secret)
+/** What a wrapped key is; bound into the AEAD so the server cannot swap one wrap for another. */
+export type WrapLabel = 'syncKey' | 'privateKey'
+
+export function wrap(key: Uint8Array, secret: Uint8Array, label: WrapLabel): SealedBox {
+  return seal(key, secret, `termos-wrap-v1|${label}`)
 }
 
-export function unwrap(key: Uint8Array, box: SealedBox): Uint8Array {
+export function unwrap(key: Uint8Array, box: SealedBox, label: WrapLabel): Uint8Array {
   try {
-    return openBytes(key, box)
+    const out = openBytes(key, box, `termos-wrap-v1|${label}`)
+    if (out.length !== 32) throw new Error()
+    return out
   } catch {
     throw new Error('Password akun salah atau data akun rusak')
   }
@@ -79,18 +92,41 @@ function sealKey(shared: Uint8Array, epk: Uint8Array, recipient: Uint8Array): Ui
   return hkdf(sha256, shared, salt, 'termos-seal', 32)
 }
 
+const SEAL_AAD = 'termos-teamkey-v1'
+
 /** Anonymous sealed box: anyone with the recipient's public key can seal, only they can open. */
 export function sealTo(recipientPublicKey: string, data: Uint8Array): SealedToKey {
   const recipient = unb64(recipientPublicKey)
+  if (recipient.length !== 32) throw new Error('Public key penerima tidak valid')
   const eph = x25519.utils.randomPrivateKey()
   const epk = x25519.getPublicKey(eph)
   const key = sealKey(x25519.getSharedSecret(eph, recipient), epk, recipient)
-  return { epk: b64(epk), ...seal(key, data) }
+  return { epk: b64(epk), ...seal(key, data, SEAL_AAD) }
 }
 
 export function openSealed(privateKey: Uint8Array, box: SealedToKey): Uint8Array {
   const epk = unb64(box.epk)
+  if (epk.length !== 32) throw new Error('Kunci tim rusak')
   const self = x25519.getPublicKey(privateKey)
   const key = sealKey(x25519.getSharedSecret(privateKey, epk), epk, self)
-  return openBytes(key, box)
+  const out = openBytes(key, box, SEAL_AAD)
+  if (out.length !== 32) throw new Error('Kunci tim rusak')
+  return out
+}
+
+/**
+ * Human-checkable fingerprint of an account public key: 8 groups of 5 digits.
+ * Compare it with your teammate over another channel (phone, chat) before sharing
+ * a team with them; a mismatch means the server handed out a different key.
+ */
+export function keyFingerprint(publicKey: string): string {
+  const h = sha256(
+    new Uint8Array([...new TextEncoder().encode('termos-fp-v1'), ...unb64(publicKey)])
+  )
+  const groups: string[] = []
+  for (let i = 0; i < 8; i++) {
+    const n = ((h[i * 3] << 16) | (h[i * 3 + 1] << 8) | h[i * 3 + 2]) % 100000
+    groups.push(String(n).padStart(5, '0'))
+  }
+  return groups.join(' ')
 }

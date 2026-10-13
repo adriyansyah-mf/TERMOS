@@ -30,8 +30,19 @@ interface VaultFile extends SealedBox {
 
 export function dataDir(): string {
   const dir = join(app.getPath('userData'), 'data')
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
   return dir
+}
+
+/**
+ * Is the OS keychain real? On Linux without a keyring (no gnome-keyring/kwallet),
+ * Electron falls back to "basic_text", which only obfuscates with a hardcoded key.
+ */
+export function osKeychainUsable(): boolean {
+  if (!safeStorage.isEncryptionAvailable()) return false
+  if (process.platform !== 'linux') return true
+  const backend = safeStorage.getSelectedStorageBackend()
+  return backend !== 'basic_text' && backend !== 'unknown'
 }
 
 class Vault extends EventEmitter {
@@ -57,7 +68,7 @@ class Vault extends EventEmitter {
   }
 
   quickUnlockAvailable(): boolean {
-    return existsSync(this.quickFile) && safeStorage.isEncryptionAvailable()
+    return existsSync(this.quickFile) && osKeychainUsable()
   }
 
   async create(password: string): Promise<void> {
@@ -84,6 +95,8 @@ class Vault extends EventEmitter {
 
   /** Unlock with the key cached in the OS keychain (libsecret/Keychain/DPAPI). */
   quickUnlock(): void {
+    if (!osKeychainUsable())
+      throw new Error('Keychain sistem tidak tersedia; buka dengan master password')
     const raw = JSON.parse(readFileSync(this.file, 'utf8')) as VaultFile
     const key = unb64(safeStorage.decryptString(readFileSync(this.quickFile)))
     this.kdf = raw.kdf
@@ -97,7 +110,10 @@ class Vault extends EventEmitter {
       return
     }
     if (!this.key) throw new Error('Vault terkunci')
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('Keychain OS tidak tersedia')
+    if (!osKeychainUsable())
+      throw new Error(
+        'Keychain sistem tidak tersedia atau tidak aman (tidak ada gnome-keyring/kwallet). Quick unlock tidak diaktifkan.'
+      )
     writeFileSync(this.quickFile, safeStorage.encryptString(b64(this.key)), { mode: 0o600 })
   }
 

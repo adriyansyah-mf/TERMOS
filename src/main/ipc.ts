@@ -1,4 +1,4 @@
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, powerMonitor, shell } from 'electron'
 import type { TermosApi, TermosEvents } from '../shared/api'
 import type { ProxmoxServer, SshKey } from '../shared/types'
 import { forwards } from './forwards'
@@ -47,14 +47,7 @@ const handlers: Handlers = {
     vault.quickUnlock()
     sync.start()
   },
-  vaultLock: () => {
-    sync.stop()
-    sharing.stopAll()
-    sessions.closeAll()
-    forwards.stopAll()
-    sftpManager.closeAll()
-    vault.lock()
-  },
+  vaultLock: () => lockNow(),
   vaultChangePassword: (a, b) => vault.changePassword(a, b),
   vaultSetQuickUnlock: (on) => vault.setQuickUnlock(on),
   vaultSnapshot: () => vault.snapshot(),
@@ -76,7 +69,8 @@ const handlers: Handlers = {
   syncRevokeDevice: (id) => sync.revokeDevice(id),
   teamCreate: (name) => sync.createTeam(name),
   teamMembers: (id) => sync.members(id),
-  teamAddMember: (id, user) => sync.addMember(id, user),
+  teamPreviewMember: (user) => sync.previewMember(user),
+  teamAddMember: (id, user, fp) => sync.addMember(id, user, fp),
   teamRemoveMember: (id, userId) => sync.removeMember(id, userId),
   teamDelete: (id) => sync.deleteTeam(id),
 
@@ -179,16 +173,36 @@ export function registerIpc(window: BrowserWindow): void {
   win = window
   sessions.attach(window.webContents)
 
+  // Only our own window may call into the main process; anything else (a frame that
+  // somehow navigated, a devtools extension) is refused.
+  const trusted = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean =>
+    !!win &&
+    !win.isDestroyed() &&
+    e.sender === win.webContents &&
+    e.senderFrame === win.webContents.mainFrame
+
   for (const [name, fn] of Object.entries(handlers)) {
-    ipcMain.handle(`termos:${name}`, (_e, ...args: unknown[]) =>
-      (fn as (...a: unknown[]) => unknown)(...args)
-    )
+    ipcMain.handle(`termos:${name}`, (e, ...args: unknown[]) => {
+      if (!trusted(e)) throw new Error('IPC ditolak')
+      if (name !== 'vaultStatus' && name !== 'syncStatus') activity()
+      return (fn as (...a: unknown[]) => unknown)(...args)
+    })
   }
   // Keystrokes and resizes are fire-and-forget to keep typing latency low.
-  ipcMain.on('termos:write', (_e, id: string, data: string) => sessions.write(id, data))
-  ipcMain.on('termos:resize', (_e, id: string, cols: number, rows: number) =>
-    sessions.resize(id, cols, rows)
-  )
+  ipcMain.on('termos:write', (e, id: unknown, data: unknown) => {
+    if (!trusted(e) || typeof id !== 'string' || typeof data !== 'string') return
+    activity()
+    sessions.write(id, data)
+  })
+  ipcMain.on('termos:resize', (e, id: unknown, cols: unknown, rows: unknown) => {
+    if (!trusted(e) || typeof id !== 'string') return
+    const c = Number(cols)
+    const r = Number(rows)
+    if (Number.isInteger(c) && Number.isInteger(r) && c > 0 && r > 0 && c < 2000 && r < 1000)
+      sessions.resize(id, c, r)
+  })
+
+  startAutoLock()
 
   let pending: NodeJS.Timeout | null = null
   vault.on('changed', () => {
@@ -204,6 +218,36 @@ export function registerIpc(window: BrowserWindow): void {
   sync.on('status', (s) => emit('sync:status', s))
   sharing.on('status', (s) => emit('share:status', s))
   sftpManager.onProgress = (p) => emit('sftp:progress', p)
+}
+
+// ── auto-lock ────────────────────────────────────────────────────────────────
+
+let lastActivity = Date.now()
+function activity(): void {
+  lastActivity = Date.now()
+}
+
+function lockNow(): void {
+  if (!vault.isUnlocked()) return
+  sync.stop()
+  sharing.stopAll()
+  sessions.closeAll()
+  forwards.stopAll()
+  sftpManager.closeAll()
+  vault.lock()
+}
+
+function startAutoLock(): void {
+  setInterval(() => {
+    if (!vault.isUnlocked()) return
+    const minutes = vault.get().settings.autoLockMinutes
+    if (minutes > 0 && Date.now() - lastActivity > minutes * 60_000) lockNow()
+  }, 30_000).unref()
+  const onSleep = (): void => {
+    if (vault.isUnlocked() && vault.get().settings.lockOnSleep) lockNow()
+  }
+  powerMonitor.on('suspend', onSleep)
+  powerMonitor.on('lock-screen', onSleep)
 }
 
 export function shutdown(): void {

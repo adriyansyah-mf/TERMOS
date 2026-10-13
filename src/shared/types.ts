@@ -210,6 +210,10 @@ export interface Settings {
   scrollback: number
   autocomplete: boolean
   recordHistory: boolean
+  /** Lock the vault after this many idle minutes; 0 disables. */
+  autoLockMinutes: number
+  /** Lock when the computer sleeps or the screen is locked. */
+  lockOnSleep: boolean
   sync: SyncSettings
   ai: { enabled: boolean; apiKey: string; model: string }
 }
@@ -279,6 +283,8 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10000,
   autocomplete: true,
   recordHistory: true,
+  autoLockMinutes: 15,
+  lockOnSleep: true,
   sync: { enabled: false, serverUrl: '', token: '' },
   ai: { enabled: false, apiKey: '', model: 'claude-sonnet-5-5' }
 }

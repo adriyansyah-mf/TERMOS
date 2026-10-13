@@ -1,14 +1,15 @@
 import { EventEmitter } from 'node:events'
 import { randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
-import { b64, open, seal, unb64 } from './crypto'
+import { b64, unb64 } from './crypto'
+import { FrameCodec, HOST } from './shareCodec'
 import { sessions, type Backend, type SessionContext } from './sessions/manager'
 import { vault } from './vault'
 
 /**
  * Live terminal sharing through the self-hosted server's relay.
- * The link is `<serverUrl>/share/<shareId>#<key>`; the key never reaches the server,
- * every frame is XChaCha20-Poly1305 sealed with it.
+ * The link is `<serverUrl>/share/<shareId>#<key>`; the key never reaches the server.
+ * Frame sealing (direction, counters, sender binding) lives in shareCodec.ts.
  */
 
 export interface ShareInfo {
@@ -20,7 +21,6 @@ export interface ShareInfo {
 
 interface ActiveShare extends ShareInfo {
   ws: WebSocket
-  key: Uint8Array
   untap: () => void
   /** Recent output so a viewer who joins late sees the current screen context. */
   backlog: string
@@ -39,8 +39,15 @@ function wsUrl(serverUrl: string, path: string): string {
   return serverUrl.replace(/^http/, 'ws') + path
 }
 
-const encode = (key: Uint8Array, text: string): string => JSON.stringify(seal(key, text))
-const decode = (key: Uint8Array, frame: string): string => open(key, JSON.parse(frame))
+/** Relay control messages are plaintext JSON; never let a malformed one throw in an event handler. */
+function parse(raw: unknown): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(String(raw))
+    return v && typeof v === 'object' ? v : null
+  } catch {
+    return null
+  }
+}
 
 class Sharing extends EventEmitter {
   private shares = new Map<string, ActiveShare>()
@@ -64,7 +71,8 @@ class Sharing extends EventEmitter {
     const { serverUrl, token } = account()
     const key = new Uint8Array(randomBytes(32))
     const ws = new WebSocket(wsUrl(serverUrl, '/api/share/host'), {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      maxPayload: 1024 * 1024
     })
     const shareId = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Server tidak menjawab')), 15000)
@@ -77,43 +85,55 @@ class Sharing extends EventEmitter {
         reject(new Error(`Relay menolak (HTTP ${res.statusCode})`))
       })
       ws.on('message', (raw) => {
-        const msg = JSON.parse(raw.toString())
-        if (msg.t === 'ready') {
+        const msg = parse(raw)
+        if (
+          msg?.t === 'ready' &&
+          typeof msg.shareId === 'string' &&
+          /^[\w-]{16,40}$/.test(msg.shareId)
+        ) {
           clearTimeout(timer)
           resolve(msg.shareId)
         }
       })
     })
+    ws.on('error', () => {
+      /* reported through 'close' */
+    })
 
+    const codec = new FrameCodec(key, shareId)
     const share: ActiveShare = {
       sessionId,
       link: `${serverUrl}/share/${shareId}#${b64(key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`,
       allowInput,
       viewers: [],
       ws,
-      key,
       backlog: '',
       untap: () => {}
     }
     share.untap = sessions.tap(sessionId, (data) => {
       share.backlog = (share.backlog + data).slice(-BACKLOG)
-      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'out', data: encode(key, data) }))
+      if (ws.readyState === ws.OPEN)
+        ws.send(JSON.stringify({ t: 'out', data: codec.encode('h2v', HOST, data) }))
     })
     ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString())
-      if (msg.t === 'joined') {
-        share.viewers.push({ id: msg.viewer, username: msg.username })
-        ws.send(JSON.stringify({ t: 'to', viewer: msg.viewer, data: encode(key, share.backlog) }))
+      const msg = parse(raw)
+      if (!msg) return
+      if (msg.t === 'joined' && typeof msg.viewer === 'string') {
+        share.viewers.push({ id: msg.viewer, username: String(msg.username ?? '?').slice(0, 64) })
+        ws.send(
+          JSON.stringify({
+            t: 'to',
+            viewer: msg.viewer,
+            data: codec.encode('h2v', HOST, share.backlog)
+          })
+        )
         this.changed()
       } else if (msg.t === 'left') {
         share.viewers = share.viewers.filter((v) => v.id !== msg.viewer)
         this.changed()
       } else if (msg.t === 'from' && share.allowInput) {
-        try {
-          sessions.write(sessionId, decode(key, msg.data))
-        } catch {
-          /* frame not sealed with our key; ignore */
-        }
+        const text = codec.decode('v2h', msg.data)
+        if (text !== null) sessions.write(sessionId, text)
       }
     })
     ws.on('close', () => {
@@ -154,13 +174,13 @@ class Sharing extends EventEmitter {
 
 export const sharing = new Sharing()
 
-/** Parse `<server>/share/<id>#<key>` and check it points at the server we are logged in to. */
+/** Parse `<server>/share/<id>#<key>`. */
 export function parseInvite(invite: string): {
   serverUrl: string
   shareId: string
   key: Uint8Array
 } {
-  const m = /^(https?:\/\/.+?)\/share\/([\w-]+)#([\w-]+)$/.exec(invite.trim())
+  const m = /^(https?:\/\/[^\s#]+?)\/share\/([\w-]{16,40})#([\w-]{40,48})$/.exec(invite.trim())
   if (!m) throw new Error('Link sesi bersama tidak valid')
   const key = unb64(m[3].replace(/-/g, '+').replace(/_/g, '/'))
   if (key.length !== 32) throw new Error('Kunci di link sesi bersama rusak')
@@ -171,43 +191,47 @@ export function parseInvite(invite: string): {
 export function joinShare(ctx: SessionContext, invite: string): Promise<Backend> {
   const { serverUrl, shareId, key } = parseInvite(invite)
   const acct = account()
+  // Only ever send our sync token to the server we are logged in to.
   if (acct.serverUrl !== serverUrl)
     throw new Error(`Link ini dari server ${serverUrl}, sedangkan kamu masuk ke ${acct.serverUrl}`)
+  const codec = new FrameCodec(key, shareId)
+  const me = randomBytes(9).toString('base64url')
   const ws = new WebSocket(wsUrl(serverUrl, `/api/share/join/${shareId}`), {
-    headers: { Authorization: `Bearer ${acct.token}` }
+    headers: { Authorization: `Bearer ${acct.token}` },
+    maxPayload: 1024 * 1024
   })
   return new Promise((resolve, reject) => {
     ws.once('unexpected-response', (_req, res) =>
       reject(new Error(`Relay menolak (HTTP ${res.statusCode})`))
     )
-    ws.once('error', (err) => reject(new Error(`Gagal terhubung ke relay: ${err.message}`)))
+    ws.on('error', (err) => reject(new Error(`Gagal terhubung ke relay: ${err.message}`)))
     ws.once('open', () => {
       ctx.emitData(
         '\x1b[90m[menonton sesi bersama; ketikan hanya diteruskan bila host mengizinkan]\x1b[0m\r\n'
       )
       resolve({
         write: (d) => {
-          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'in', data: encode(key, d) }))
+          if (ws.readyState === ws.OPEN)
+            ws.send(JSON.stringify({ t: 'in', data: codec.encode('v2h', me, d) }))
         },
         resize: () => {},
         close: () => ws.close()
       })
     })
     ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString())
-      if (msg.t === 'data') {
-        try {
-          ctx.emitData(decode(key, msg.data))
-        } catch {
-          ctx.emitData('\r\n\x1b[31m[data tidak bisa dibuka: kunci di link salah]\x1b[0m\r\n')
-        }
-      } else if (msg.t === 'ended') {
+      const msg = parse(raw)
+      if (msg?.t === 'data') {
+        const text = codec.decode('h2v', msg.data)
+        if (text !== null) ctx.emitData(text)
+      } else if (msg?.t === 'ended') {
         ctx.emitData('\r\n\x1b[90m[host mengakhiri sesi bersama]\x1b[0m\r\n')
       }
     })
     ws.on('close', (code, reason) => {
-      if (code >= 4000) ctx.emitData(`\r\n\x1b[90m[${reason.toString() || 'terputus'}]\x1b[0m\r\n`)
+      if (code >= 4000)
+        ctx.emitData(`\r\n\x1b[90m[${reason.toString().slice(0, 100) || 'terputus'}]\x1b[0m\r\n`)
       ctx.setStatus('closed')
     })
   })
 }
+

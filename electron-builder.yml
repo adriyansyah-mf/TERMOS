@@ -44,3 +44,5 @@ deb:
     - libnss3
     - libxtst6
 npmRebuild: false
+# Electron fuses are flipped on the packaged binary (no RUN_AS_NODE, NODE_OPTIONS, --inspect).
+afterPack: build/afterPack.cjs

@@ -20,6 +20,7 @@ export interface SyncStatus {
   lastSyncAt?: number
   lastError?: string
   syncing: boolean
+  fingerprint?: string
   teams: { id: string; label: string; role?: string }[]
 }
 
@@ -103,8 +104,11 @@ export interface TermosApi {
   syncDevices(): SyncDevice[]
   syncRevokeDevice(id: string): void
   teamCreate(name: string): void
-  teamMembers(teamId: string): { userId: string; username: string; role: string }[]
-  teamAddMember(teamId: string, username: string): void
+  teamMembers(
+    teamId: string
+  ): { userId: string; username: string; role: string; fingerprint: string }[]
+  teamPreviewMember(username: string): { username: string; fingerprint: string }
+  teamAddMember(teamId: string, username: string, fingerprint: string): void
   teamRemoveMember(teamId: string, userId: string): void
   teamDelete(teamId: string): void
 

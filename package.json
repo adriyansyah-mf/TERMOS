@@ -23,10 +23,10 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "test:crypto": "esbuild test/crypto.test.ts --bundle --platform=node --format=esm --outfile=out/test/crypto.test.mjs --log-level=warning && node --test out/test/crypto.test.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-ec2": "^3.858.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@noble/ciphers": "^1.3.0",
@@ -37,12 +37,13 @@
     "socks": "^2.8.7",
     "ssh-config": "^5.0.3",
     "ssh2": "^1.16.0",
-    "ws": "^8.18.3"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron/fuses": "^1.8.0",
     "@types/node": "^22.16.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -54,7 +55,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "electron": "^37.2.3",
+    "electron": "^44.7.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^4.0.0",
     "eslint": "^9.31.0",
@@ -71,7 +72,7 @@
   "allowScripts": {
     "@serialport/bindings-cpp@12.0.1": true,
     "cpu-features@0.0.10": true,
-    "electron@37.10.3": true,
+    "electron@44.7.1": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "node-pty@1.0.0": true,

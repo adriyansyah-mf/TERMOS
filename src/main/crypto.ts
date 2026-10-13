@@ -19,8 +19,8 @@ const b64 = (u: Uint8Array): string => Buffer.from(u).toString('base64')
 const unb64 = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, 'base64'))
 
 export function newKdfParams(): KdfParams {
-  // OWASP 2023 baseline for Argon2id: 19 MiB, 2 iterations, 1 lane.
-  return { alg: 'argon2id', salt: b64(randomBytes(16)), m: 19456, t: 2, p: 1 }
+  // Above the OWASP Argon2id baseline (19 MiB, t=2): 64 MiB, 3 passes. Unlock takes ~1 s.
+  return { alg: 'argon2id', salt: b64(randomBytes(16)), m: 65536, t: 3, p: 1 }
 }
 
 export async function deriveKey(password: string, kdf: KdfParams): Promise<Uint8Array> {
@@ -31,19 +31,32 @@ export function randomKey(): Uint8Array {
   return new Uint8Array(randomBytes(32))
 }
 
-export function seal(key: Uint8Array, plaintext: string | Uint8Array): SealedBox {
+const enc = (s: string): Uint8Array => new TextEncoder().encode(s)
+
+/**
+ * XChaCha20-Poly1305 with a random 192-bit nonce. `aad` is authenticated but not
+ * encrypted: it binds the ciphertext to its context (record id, direction, ...),
+ * so a box cannot be moved to another place without failing to open.
+ */
+export function seal(key: Uint8Array, plaintext: string | Uint8Array, aad?: string): SealedBox {
   const nonce = new Uint8Array(randomBytes(24))
-  const data = typeof plaintext === 'string' ? new TextEncoder().encode(plaintext) : plaintext
-  const ct = xchacha20poly1305(key, nonce).encrypt(data)
+  const data = typeof plaintext === 'string' ? enc(plaintext) : plaintext
+  const ct = xchacha20poly1305(key, nonce, aad === undefined ? undefined : enc(aad)).encrypt(data)
   return { nonce: b64(nonce), ct: b64(ct) }
 }
 
-export function openBytes(key: Uint8Array, box: SealedBox): Uint8Array {
-  return xchacha20poly1305(key, unb64(box.nonce)).decrypt(unb64(box.ct))
+export function openBytes(key: Uint8Array, box: SealedBox, aad?: string): Uint8Array {
+  if (typeof box?.nonce !== 'string' || typeof box?.ct !== 'string')
+    throw new Error('Data terenkripsi rusak')
+  const nonce = unb64(box.nonce)
+  if (nonce.length !== 24) throw new Error('Data terenkripsi rusak')
+  return xchacha20poly1305(key, nonce, aad === undefined ? undefined : enc(aad)).decrypt(
+    unb64(box.ct)
+  )
 }
 
-export function open(key: Uint8Array, box: SealedBox): string {
-  return new TextDecoder().decode(openBytes(key, box))
+export function open(key: Uint8Array, box: SealedBox, aad?: string): string {
+  return new TextDecoder().decode(openBytes(key, box, aad))
 }
 
 export { b64, unb64 }

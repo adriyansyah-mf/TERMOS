@@ -229,6 +229,29 @@ export function SettingsView(): React.JSX.Element {
       />
 
       <div className="section-title">Keamanan</div>
+      <Field
+        label="Kunci otomatis setelah tidak dipakai"
+        hint="Semua sesi ditutup saat vault terkunci."
+      >
+        <select
+          className="select"
+          style={{ maxWidth: 240 }}
+          value={settings.autoLockMinutes}
+          onChange={(e) => set({ autoLockMinutes: Number(e.target.value) })}
+        >
+          <option value={5}>5 menit</option>
+          <option value={15}>15 menit</option>
+          <option value={30}>30 menit</option>
+          <option value={60}>1 jam</option>
+          <option value={240}>4 jam</option>
+          <option value={0}>Jangan kunci otomatis</option>
+        </select>
+      </Field>
+      <Check
+        label="Kunci saat komputer tidur atau layar dikunci"
+        checked={settings.lockOnSleep}
+        onChange={(v) => set({ lockOnSleep: v })}
+      />
       <Check
         label="Buka vault dengan keychain sistem (tanpa ketik master password)"
         checked={!!status?.quickUnlock}

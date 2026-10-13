@@ -170,7 +170,9 @@ function Connect({ onDone }: { onDone(): void }): React.JSX.Element {
 function Teams({ status }: { status: SyncStatus }): React.JSX.Element {
   const toast = useStore((s) => s.toast)
   const [open, setOpen] = useState<string | null>(null)
-  const [members, setMembers] = useState<{ userId: string; username: string; role: string }[]>([])
+  const [members, setMembers] = useState<
+    { userId: string; username: string; role: string; fingerprint: string }[]
+  >([])
 
   const loadMembers = useCallback(
     async (teamId: string) => {
@@ -291,6 +293,9 @@ function Teams({ status }: { status: SyncStatus }): React.JSX.Element {
                               <td className="muted">
                                 {m.role === 'owner' ? 'pemilik' : 'anggota'}
                               </td>
+                              <td className="fp muted" title="Fingerprint kunci akun">
+                                {m.fingerprint}
+                              </td>
                               <td style={{ textAlign: 'right' }}>
                                 {t.role === 'owner' && m.role !== 'owner' && (
                                   <button
@@ -315,12 +320,39 @@ function Teams({ status }: { status: SyncStatus }): React.JSX.Element {
                           className="btn sm"
                           style={{ marginTop: 8 }}
                           onClick={async () => {
-                            const u = await promptOne('Tambah anggota', 'Username di server ini')
-                            if (u?.trim())
+                            const u = (
+                              await promptOne('Tambah anggota', 'Username di server ini')
+                            )?.trim()
+                            if (!u) return
+                            let preview: { username: string; fingerprint: string }
+                            try {
+                              preview = await api.teamPreviewMember(u)
+                            } catch (e) {
+                              return toast(errMsg(e), 'error')
+                            }
+                            const ok = await confirmDialog(
+                              `Cocokkan fingerprint ${preview.username}`,
+                              <>
+                                <p style={{ marginTop: 0 }}>
+                                  Minta {preview.username} membuka Sync &amp; tim dan membacakan
+                                  fingerprint akunnya lewat jalur lain (telepon, chat). Lanjutkan
+                                  hanya kalau sama persis:
+                                </p>
+                                <p className="fp" style={{ fontSize: 15 }}>
+                                  {preview.fingerprint}
+                                </p>
+                                <p className="small">
+                                  Kalau berbeda, server memberikan kunci orang lain dan kunci tim
+                                  bisa jatuh ke pihak yang salah.
+                                </p>
+                              </>,
+                              { okLabel: 'Fingerprint cocok, tambahkan' }
+                            )
+                            if (ok)
                               await run(async () => {
-                                await api.teamAddMember(t.id, u.trim())
+                                await api.teamAddMember(t.id, u, preview.fingerprint)
                                 await loadMembers(t.id)
-                              }, `${u.trim()} ditambahkan`)
+                              }, `${preview.username} ditambahkan`)
                           }}
                         >
                           Tambah anggota
@@ -394,6 +426,16 @@ export function SyncView(): React.JSX.Element {
                 <td>
                   {status.username}
                   {status.isAdmin ? <span className="muted"> (admin server)</span> : null}
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">Fingerprint akunmu</td>
+                <td>
+                  <span className="fp">{status.fingerprint}</span>
+                  <div className="muted small">
+                    Bacakan ini ke pemilik tim saat diundang, supaya mereka bisa memastikan kuncinya
+                    benar milikmu.
+                  </div>
                 </td>
               </tr>
               <tr>
