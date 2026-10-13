@@ -4,6 +4,7 @@ import type { Snippet } from '../../../shared/types'
 import { api } from '../api'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
+import { VaultSelect } from '../components/VaultSelect'
 import { confirmDialog } from '../lib'
 
 function SnippetEditor({
@@ -48,6 +49,11 @@ function SnippetEditor({
           placeholder="Cek disk"
         />
       </Field>
+      <VaultSelect
+        value={s.teamId}
+        onChange={(teamId) => setS({ ...s, teamId })}
+        hint="Snippet di tim bisa dijalankan semua anggota."
+      />
       <Field label="Perintah" hint="Tiap baris dikirim sebagai perintah terpisah.">
         <textarea
           className="textarea"

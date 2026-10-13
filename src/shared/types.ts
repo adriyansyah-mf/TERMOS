@@ -178,8 +178,28 @@ export interface HistoryEntry extends Entity {
 export interface TeamVault {
   id: string
   label: string
-  /** base64 32-byte symmetric key; never sent to the server. */
+  /** base64 32-byte symmetric key; the server only ever sees it sealed to members' public keys. */
   key: string
+  role?: 'owner' | 'member'
+}
+
+/** Account on a self-hosted termos-server. Keys stay inside the local encrypted vault. */
+export interface SyncSettings {
+  enabled: boolean
+  serverUrl: string
+  token: string
+  lastSyncAt?: number
+  username?: string
+  userId?: string
+  isAdmin?: boolean
+  /** Highest server change number already applied locally. */
+  cursor?: number
+  /** base64 key that encrypts personal records. */
+  syncKey?: string
+  publicKey?: string
+  /** base64 X25519 private key used to open team keys. */
+  privateKey?: string
+  lastError?: string
 }
 
 export interface Settings {
@@ -190,9 +210,12 @@ export interface Settings {
   scrollback: number
   autocomplete: boolean
   recordHistory: boolean
-  sync: { enabled: boolean; serverUrl: string; token: string; lastSyncAt?: number }
+  sync: SyncSettings
   ai: { enabled: boolean; apiKey: string; model: string }
 }
+
+/** Per-entity record of what the server last confirmed: updatedAt and scope. */
+export type SyncState = Record<string, { t: number; s: string }>
 
 export interface VaultData {
   version: 1
@@ -210,9 +233,28 @@ export interface VaultData {
   history: HistoryEntry[]
   teams: TeamVault[]
   settings: Settings
+  syncState: SyncState
 }
 
-export type CollectionName = Exclude<keyof VaultData, 'version' | 'settings' | 'teams'>
+export type CollectionName = Exclude<
+  keyof VaultData,
+  'version' | 'settings' | 'teams' | 'syncState'
+>
+
+/** Command history stays on the device; everything else syncs. */
+export const SYNCED_COLLECTIONS: CollectionName[] = [
+  'hosts',
+  'groups',
+  'identities',
+  'keys',
+  'knownHosts',
+  'proxies',
+  'forwardRules',
+  'snippets',
+  'snippetPackages',
+  'workspaces',
+  'proxmox'
+]
 
 export const COLLECTIONS: CollectionName[] = [
   'hosts',
@@ -257,6 +299,7 @@ export function emptyVault(): VaultData {
     proxmox: [],
     history: [],
     teams: [],
+    syncState: {},
     settings: structuredClone(DEFAULT_SETTINGS)
   }
 }

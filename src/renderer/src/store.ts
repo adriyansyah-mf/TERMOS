@@ -4,7 +4,15 @@ import type { OpenSessionRequest, SessionEvent, SessionTarget, VaultData } from 
 import { api, bridge, errMsg } from './api'
 
 export type View =
-  'hosts' | 'keychain' | 'snippets' | 'forwards' | 'proxmox' | 'knownHosts' | 'history' | 'settings'
+  | 'hosts'
+  | 'keychain'
+  | 'snippets'
+  | 'forwards'
+  | 'proxmox'
+  | 'knownHosts'
+  | 'history'
+  | 'sync'
+  | 'settings'
 
 export type SessionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 

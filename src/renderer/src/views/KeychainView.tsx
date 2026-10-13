@@ -4,6 +4,7 @@ import type { Identity, ProxyDef, SshKey } from '../../../shared/types'
 import { api, errMsg } from '../api'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
+import { VaultSelect } from '../components/VaultSelect'
 import { confirmDialog } from '../lib'
 
 function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.Element {
@@ -28,6 +29,15 @@ function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.E
       <Field label="Fingerprint">
         <div className="fp">{fp}</div>
       </Field>
+      <VaultSelect
+        value={k.teamId}
+        onChange={(teamId) => {
+          void api
+            .upsert<SshKey>('keys', { ...k, teamId })
+            .then(() => toast(teamId ? 'Key dipindah ke tim' : 'Key dipindah ke vault pribadi'))
+        }}
+        hint="Key di tim (termasuk private key-nya) bisa dipakai semua anggota tim."
+      />
       <Field
         label="Public key"
         hint="Tempel ke ~/.ssh/authorized_keys di server, atau pakai ssh-copy-id."
@@ -226,6 +236,7 @@ function IdentityEditor({
           onChange={(e) => setI({ ...i, label: e.target.value })}
         />
       </Field>
+      <VaultSelect value={i.teamId} onChange={(teamId) => setI({ ...i, teamId })} />
       <Field label="Username">
         <input
           className="input"

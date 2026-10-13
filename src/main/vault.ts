@@ -123,12 +123,38 @@ class Vault extends EventEmitter {
     return this.data
   }
 
-  /** Data for the renderer: tombstones stripped. */
+  /** Data for the renderer: tombstones, sync bookkeeping and account keys stripped. */
   snapshot(): VaultData {
     const d = this.get()
-    const out = { ...d } as VaultData
+    const out = { ...d, syncState: {} } as VaultData
     for (const c of COLLECTIONS) (out[c] as Entity[]) = (d[c] as Entity[]).filter((e) => !e.deleted)
+    const s = d.settings.sync
+    out.settings = {
+      ...d.settings,
+      sync: { ...s, token: s.token ? 'set' : '', syncKey: undefined, privateKey: undefined }
+    }
+    out.teams = d.teams.map((t) => ({ ...t, key: '' }))
     return out
+  }
+
+  /** Store a record pulled from the sync server as-is (keeps its updatedAt). */
+  applyRemote(c: CollectionName, entity: Entity): void {
+    const arr = this.get()[c] as Entity[]
+    const i = arr.findIndex((e) => e.id === entity.id)
+    if (i >= 0) arr[i] = entity
+    else arr.push(entity)
+  }
+
+  /** Drop everything that belonged to a team we no longer have access to, without tombstones. */
+  purgeTeam(teamId: string): void {
+    const d = this.get()
+    for (const c of COLLECTIONS) {
+      const arr = d[c] as Entity[]
+      for (const e of arr.filter((x) => x.teamId === teamId)) delete d.syncState[e.id]
+      ;(d[c] as Entity[]) = arr.filter((e) => e.teamId !== teamId)
+    }
+    d.teams = d.teams.filter((t) => t.id !== teamId)
+    this.changed()
   }
 
   list<T extends Entity>(c: CollectionName): T[] {
@@ -162,9 +188,16 @@ class Vault extends EventEmitter {
 
   updateSettings(patch: Partial<Settings>): Settings {
     const d = this.get()
-    d.settings = { ...d.settings, ...patch }
+    // Account fields are owned by the sync service, never by the renderer.
+    d.settings = { ...d.settings, ...patch, sync: d.settings.sync }
     this.changed()
     return d.settings
+  }
+
+  setSync(patch: Partial<Settings['sync']>): void {
+    const d = this.get()
+    d.settings.sync = { ...d.settings.sync, ...patch }
+    this.changed()
   }
 
   replace(data: VaultData): void {
@@ -215,6 +248,7 @@ class Vault extends EventEmitter {
     }
     for (const c of COLLECTIONS) if (!Array.isArray(out[c])) (out[c] as Entity[]) = []
     if (!Array.isArray(out.teams)) out.teams = []
+    if (!out.syncState || typeof out.syncState !== 'object') out.syncState = {}
     return out
   }
 }

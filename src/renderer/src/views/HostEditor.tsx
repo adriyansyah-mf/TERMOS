@@ -5,6 +5,7 @@ import { api, errMsg } from '../api'
 import { useStore } from '../store'
 import { THEMES } from '../themes'
 import { Check, Field, Modal } from '../components/ui'
+import { VaultSelect } from '../components/VaultSelect'
 
 const DEFAULT_PORT: Record<Protocol, number | undefined> = {
   ssh: 22,
@@ -507,6 +508,7 @@ export function HostEditor(props: {
           />
         </Field>
       </div>
+      <VaultSelect value={h.teamId} onChange={(teamId) => setH({ ...h, teamId })} />
       {h.protocol !== 'local' && h.protocol !== 'serial' && (
         <>
           <div className="section-title">Koneksi</div>
@@ -579,6 +581,7 @@ export function GroupEditor(props: { group?: Group; onClose(): void }): React.JS
           </select>
         </Field>
       </div>
+      <VaultSelect value={g.teamId} onChange={(teamId) => setG({ ...g, teamId })} />
       <p className="dim small">
         Pengaturan di bawah dipakai oleh semua host di grup ini yang tidak mengisinya sendiri.
       </p>

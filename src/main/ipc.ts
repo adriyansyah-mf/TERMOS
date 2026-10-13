@@ -8,6 +8,7 @@ import { listSerialPorts, openSession } from './sessions/backends'
 import { sessions } from './sessions/manager'
 import { sftpManager } from './sftp'
 import { importSshConfig } from './sshconfig'
+import { sync } from './sync'
 import { vault } from './vault'
 
 let win: BrowserWindow | null = null
@@ -37,9 +38,16 @@ const handlers: Handlers = {
     quickUnlock: vault.quickUnlockAvailable()
   }),
   vaultCreate: (pw) => vault.create(pw),
-  vaultUnlock: (pw) => vault.unlock(pw),
-  vaultQuickUnlock: () => vault.quickUnlock(),
+  vaultUnlock: async (pw) => {
+    await vault.unlock(pw)
+    sync.start()
+  },
+  vaultQuickUnlock: () => {
+    vault.quickUnlock()
+    sync.start()
+  },
   vaultLock: () => {
+    sync.stop()
     sessions.closeAll()
     forwards.stopAll()
     sftpManager.closeAll()
@@ -54,6 +62,21 @@ const handlers: Handlers = {
   },
   remove: (c, id) => vault.remove(c, id),
   updateSettings: (patch) => vault.updateSettings(patch),
+
+  syncStatus: () => sync.status(),
+  syncServerInfo: (url) => sync.serverInfo(url),
+  syncRegister: (url, user, pw, invite) => sync.register(url, user, pw, invite),
+  syncLogin: (url, user, pw) => sync.login(url, user, pw),
+  syncLogout: () => sync.logout(),
+  syncNow: () => sync.syncNow(),
+  syncChangePassword: (a, b) => sync.changePassword(a, b),
+  syncDevices: () => sync.devices(),
+  syncRevokeDevice: (id) => sync.revokeDevice(id),
+  teamCreate: (name) => sync.createTeam(name),
+  teamMembers: (id) => sync.members(id),
+  teamAddMember: (id, user) => sync.addMember(id, user),
+  teamRemoveMember: (id, userId) => sync.removeMember(id, userId),
+  teamDelete: (id) => sync.deleteTeam(id),
 
   sessionOpen: (req) => openSession(req),
   sessionClose: (id) => sessions.close(id),
@@ -161,6 +184,7 @@ export function registerIpc(window: BrowserWindow): void {
 
   let pending: NodeJS.Timeout | null = null
   vault.on('changed', () => {
+    sync.localChanged()
     if (pending) return
     pending = setTimeout(() => {
       pending = null
@@ -169,10 +193,12 @@ export function registerIpc(window: BrowserWindow): void {
   })
   vault.on('locked', () => emit('vault:locked'))
   forwards.on('status', (s) => emit('forwards:status', s))
+  sync.on('status', (s) => emit('sync:status', s))
   sftpManager.onProgress = (p) => emit('sftp:progress', p)
 }
 
 export function shutdown(): void {
+  sync.stop()
   sessions.closeAll()
   forwards.stopAll()
   sftpManager.closeAll()

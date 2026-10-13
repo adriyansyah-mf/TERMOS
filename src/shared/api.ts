@@ -12,6 +12,25 @@ import type {
   VaultData
 } from './types'
 
+export interface SyncStatus {
+  connected: boolean
+  serverUrl: string
+  username?: string
+  isAdmin?: boolean
+  lastSyncAt?: number
+  lastError?: string
+  syncing: boolean
+  teams: { id: string; label: string; role?: string }[]
+}
+
+export interface SyncDevice {
+  id: string
+  name: string
+  createdAt: number
+  lastSeen: number
+  current: boolean
+}
+
 export interface VaultStatus {
   exists: boolean
   unlocked: boolean
@@ -66,6 +85,21 @@ export interface TermosApi {
   upsert<T extends Entity>(collection: CollectionName, entity: T): T
   remove(collection: CollectionName, id: string): void
   updateSettings(patch: Partial<Settings>): Settings
+
+  syncStatus(): SyncStatus
+  syncServerInfo(serverUrl: string): { signup: string; users: number; version: string }
+  syncRegister(serverUrl: string, username: string, password: string, inviteCode?: string): void
+  syncLogin(serverUrl: string, username: string, password: string): void
+  syncLogout(): void
+  syncNow(): void
+  syncChangePassword(oldPassword: string, newPassword: string): void
+  syncDevices(): SyncDevice[]
+  syncRevokeDevice(id: string): void
+  teamCreate(name: string): void
+  teamMembers(teamId: string): { userId: string; username: string; role: string }[]
+  teamAddMember(teamId: string, username: string): void
+  teamRemoveMember(teamId: string, userId: string): void
+  teamDelete(teamId: string): void
 
   sessionOpen(req: OpenSessionRequest): { sessionId: string; label: string }
   sessionClose(id: string): void
@@ -162,6 +196,7 @@ export interface TermosEvents {
   'vault:locked': void
   'forwards:status': ForwardStatus[]
   'sftp:progress': TransferProgress
+  'sync:status': SyncStatus
 }
 
 export interface PreloadBridge {

@@ -11,8 +11,9 @@ import { SnippetsView } from './views/SnippetsView'
 import { ForwardsView } from './views/ForwardsView'
 import { ProxmoxView } from './views/ProxmoxView'
 import { HistoryView, KnownHostsView, SettingsView } from './views/SmallViews'
+import { SyncView } from './views/SyncView'
 
-// Order matters: Ctrl+1..8 follows this list.
+// Order matters: Ctrl+1..9 follows this list.
 const NAV: { view: View; label: string }[] = [
   { view: 'hosts', label: 'Hosts' },
   { view: 'keychain', label: 'Keychain' },
@@ -21,6 +22,7 @@ const NAV: { view: View; label: string }[] = [
   { view: 'proxmox', label: 'Proxmox' },
   { view: 'knownHosts', label: 'Known hosts' },
   { view: 'history', label: 'Riwayat' },
+  { view: 'sync', label: 'Sync & tim' },
   { view: 'settings', label: 'Settings' }
 ]
 
@@ -38,6 +40,8 @@ function CurrentView({ view }: { view: View }): React.JSX.Element {
       return <KnownHostsView />
     case 'history':
       return <HistoryView />
+    case 'sync':
+      return <SyncView />
     case 'settings':
       return <SettingsView />
     default:
@@ -76,7 +80,7 @@ function Workspace(): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const { tabs, activeTab } = useStore.getState()
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && /^Digit[1-8]$/.test(e.code)) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
         e.preventDefault()
         setView(NAV[Number(e.code.slice(5)) - 1].view)
       } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
