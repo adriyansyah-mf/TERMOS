@@ -6,7 +6,7 @@ function HostKey({ r }: { r: Extract<PendingRequest, { type: 'hostkey' }> }): Re
   const answer = useStore((s) => s.answer)
   return (
     <Modal
-      title={r.changed ? '⚠ Host key BERUBAH' : 'Host baru'}
+      title={r.changed ? 'Host key berubah' : 'Host baru'}
       onClose={() => answer(r.requestId, false)}
       footer={
         <>

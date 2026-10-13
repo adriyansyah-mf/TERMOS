@@ -152,87 +152,113 @@ export function ForwardsView(): React.JSX.Element {
   return (
     <div className="view">
       <div className="view-head">
-        <h1>Port Forwarding</h1>
+        <h1>Port forwarding</h1>
         <span className="grow" />
         <button
           className="btn primary"
           onClick={() => setEditing({})}
           disabled={!data.hosts.some((h) => h.protocol === 'ssh')}
         >
-          + Aturan
+          Aturan baru
         </button>
       </div>
       {data.forwardRules.length === 0 ? (
         <div className="empty">
-          <div className="big">⇄</div>
-          Belum ada aturan. Contoh: akses database di server lewat localhost:5432.
+          <p>
+            Belum ada aturan. Contoh: buka database di server lewat localhost:5432 tanpa membuka
+            port-nya ke internet.
+          </p>
+          {!data.hosts.some((h) => h.protocol === 'ssh') && (
+            <p className="muted">
+              Tambahkan host SSH dulu di menu Hosts; forwarding berjalan lewat koneksi SSH.
+            </p>
+          )}
         </div>
       ) : (
-        <div className="list">
-          {data.forwardRules.map((r) => {
-            const s = st(r.id)
-            const host = data.hosts.find((h) => h.id === r.hostId)
-            return (
-              <div key={r.id} className="list-row">
-                <span className={'dot ' + (s?.active ? 'connected' : s?.error ? 'error' : '')} />
-                <div className="grow ellipsis">
-                  <div className="title">
-                    {r.label} <span className="tag">{r.type}</span>
-                  </div>
-                  <div className="dim small">
-                    {describe(r)} · via {host?.label ?? '?'}
-                  </div>
-                  {s?.error && (
-                    <div className="small" style={{ color: 'var(--danger)' }}>
-                      {s.error}
-                    </div>
-                  )}
-                </div>
-                {s?.active ? (
-                  <button className="btn sm" onClick={() => void api.forwardStop(r.id)}>
-                    Stop
-                  </button>
-                ) : (
-                  <button
-                    className="btn sm ok"
-                    disabled={busy === r.id}
-                    onClick={async () => {
-                      setBusy(r.id)
-                      try {
-                        await api.forwardStart(r.id)
-                      } catch (e) {
-                        toast(errMsg(e), 'error')
-                      } finally {
-                        setBusy(null)
-                      }
-                    }}
-                  >
-                    {busy === r.id ? 'Menghubungkan…' : 'Start'}
-                  </button>
-                )}
-                <button className="btn sm" onClick={() => setEditing({ v: r })}>
-                  Edit
-                </button>
-                <button
-                  className="btn sm danger"
-                  onClick={async () => {
-                    if (
-                      await confirmDialog('Hapus aturan', `Hapus "${r.label}"?`, {
-                        danger: true,
-                        okLabel: 'Hapus'
-                      })
-                    ) {
-                      await api.forwardStop(r.id)
-                      await api.remove('forwardRules', r.id)
-                    }
-                  }}
-                >
-                  Hapus
-                </button>
-              </div>
-            )
-          })}
-        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Nama</th>
+              <th>Jenis</th>
+              <th>Arah</th>
+              <th>Lewat</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {data.forwardRules.map((r) => {
+              const s = st(r.id)
+              const host = data.hosts.find((h) => h.id === r.hostId)
+              return (
+                <tr key={r.id}>
+                  <td>
+                    <span className="row" style={{ gap: 6 }}>
+                      <span
+                        className={'dot ' + (s?.active ? 'connected' : s?.error ? 'error' : '')}
+                      />
+                      {s?.active ? 'aktif' : s?.error ? 'gagal' : 'mati'}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="cell-title">{r.label}</div>
+                    {s?.error && (
+                      <div className="small" style={{ color: 'var(--danger)' }}>
+                        {s.error}
+                      </div>
+                    )}
+                  </td>
+                  <td className="muted">{r.type}</td>
+                  <td className="mono small">{describe(r)}</td>
+                  <td className="muted">{host?.label ?? '(host terhapus)'}</td>
+                  <td className="actions">
+                    {s?.active ? (
+                      <button className="btn sm" onClick={() => void api.forwardStop(r.id)}>
+                        Stop
+                      </button>
+                    ) : (
+                      <button
+                        className="btn sm"
+                        disabled={busy === r.id}
+                        onClick={async () => {
+                          setBusy(r.id)
+                          try {
+                            await api.forwardStart(r.id)
+                          } catch (e) {
+                            toast(errMsg(e), 'error')
+                          } finally {
+                            setBusy(null)
+                          }
+                        }}
+                      >
+                        {busy === r.id ? 'Menghubungkan' : 'Start'}
+                      </button>
+                    )}
+                    <button className="btn sm ghost" onClick={() => setEditing({ v: r })}>
+                      Edit
+                    </button>
+                    <button
+                      className="btn sm ghost danger"
+                      onClick={async () => {
+                        if (
+                          await confirmDialog('Hapus aturan', `Hapus "${r.label}"?`, {
+                            danger: true,
+                            okLabel: 'Hapus'
+                          })
+                        ) {
+                          await api.forwardStop(r.id)
+                          await api.remove('forwardRules', r.id)
+                        }
+                      }}
+                    >
+                      Hapus
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       )}
       {editing && <RuleEditor rule={editing.v} onClose={() => setEditing(null)} />}
     </div>

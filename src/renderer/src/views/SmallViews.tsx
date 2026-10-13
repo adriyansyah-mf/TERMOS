@@ -12,36 +12,58 @@ export function KnownHostsView(): React.JSX.Element {
   return (
     <div className="view">
       <div className="view-head">
-        <h1>Known Hosts</h1>
+        <h1>Known hosts</h1>
         <span className="grow" />
         <input
           className="input search"
-          placeholder="Cari host…"
+          placeholder="Cari host atau fingerprint"
+          aria-label="Cari known host"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <p className="muted small" style={{ marginTop: -8 }}>
-        Fingerprint server yang sudah kamu percayai. Hapus entri kalau server memang diinstal ulang.
+      <p className="view-intro">
+        Fingerprint server yang sudah kamu percayai. Hapus entri kalau server memang diinstal ulang;
+        Termos akan bertanya lagi saat konek berikutnya.
       </p>
       {list.length === 0 ? (
-        <div className="dim small">Belum ada.</div>
-      ) : (
-        <div className="list">
-          {list.map((k) => (
-            <div key={k.id} className="list-row">
-              <div className="grow ellipsis">
-                <div className="title">
-                  {k.host}:{k.port} <span className="tag">{k.keyType}</span>
-                </div>
-                <div className="fp dim">{k.fingerprint}</div>
-              </div>
-              <button className="btn sm danger" onClick={() => void api.remove('knownHosts', k.id)}>
-                Hapus
-              </button>
-            </div>
-          ))}
+        <div className="empty">
+          <p>
+            {q
+              ? `Tidak ada yang cocok dengan "${q}".`
+              : 'Belum ada. Fingerprint tercatat otomatis saat kamu menyetujuinya ketika pertama konek.'}
+          </p>
         </div>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Tipe key</th>
+              <th>Fingerprint</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((k) => (
+              <tr key={k.id}>
+                <td className="mono">
+                  {k.host}:{k.port}
+                </td>
+                <td className="muted">{k.keyType}</td>
+                <td className="fp">{k.fingerprint}</td>
+                <td className="actions">
+                  <button
+                    className="btn sm ghost danger"
+                    onClick={() => void api.remove('knownHosts', k.id)}
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )
@@ -72,6 +94,7 @@ export function HistoryView(): React.JSX.Element {
         <select
           className="select"
           style={{ width: 180 }}
+          aria-label="Filter host"
           value={hostId}
           onChange={(e) => setHostId(e.target.value)}
         >
@@ -84,37 +107,56 @@ export function HistoryView(): React.JSX.Element {
         </select>
         <input
           className="input search"
-          placeholder="Cari perintah…"
+          placeholder="Cari perintah"
+          aria-label="Cari perintah"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
       {!data.settings.recordHistory && (
-        <div className="alert info small">Pencatatan riwayat sedang mati (Settings).</div>
+        <div className="alert small">Pencatatan riwayat sedang mati. Nyalakan di Settings.</div>
       )}
       {list.length === 0 ? (
-        <div className="dim small">Belum ada riwayat.</div>
-      ) : (
-        <div className="list">
-          {list.map((h) => (
-            <div key={h.id} className="list-row" style={{ padding: '6px 14px' }}>
-              <span className="mono small grow ellipsis" style={{ userSelect: 'text' }}>
-                {h.command}
-              </span>
-              <span className="dim small">{data.hosts.find((x) => x.id === h.hostId)?.label}</span>
-              <span className="dim small">{new Date(h.at).toLocaleString()}</span>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  void navigator.clipboard.writeText(h.command)
-                  toast('Disalin')
-                }}
-              >
-                Salin
-              </button>
-            </div>
-          ))}
+        <div className="empty">
+          <p>
+            {q || hostId
+              ? 'Tidak ada perintah yang cocok dengan filter ini.'
+              : 'Belum ada riwayat. Perintah yang kamu ketik di sesi host tersimpan di sini (kecuali saat diminta password).'}
+          </p>
         </div>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Perintah</th>
+              <th>Host</th>
+              <th>Waktu</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((h) => (
+              <tr key={h.id}>
+                <td className="mono small" style={{ userSelect: 'text' }}>
+                  {h.command}
+                </td>
+                <td className="muted">{data.hosts.find((x) => x.id === h.hostId)?.label}</td>
+                <td className="muted small">{new Date(h.at).toLocaleString()}</td>
+                <td className="actions">
+                  <button
+                    className="btn sm ghost"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(h.command)
+                      toast('Disalin')
+                    }}
+                  >
+                    Salin
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )
@@ -238,7 +280,7 @@ export function SettingsView(): React.JSX.Element {
             }
           }}
         >
-          🔒 Kunci sekarang
+          Kunci sekarang
         </button>
       </div>
 

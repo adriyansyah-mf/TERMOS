@@ -89,7 +89,7 @@ function ConnFields(props: {
                 value={c.keyId ?? ''}
                 onChange={(e) => set({ keyId: e.target.value || undefined })}
               >
-                <option value="">— tidak ada —</option>
+                <option value="">(tidak ada)</option>
                 {data.keys.map((k) => (
                   <option key={k.id} value={k.id}>
                     {k.label} ({k.keyType})
@@ -104,7 +104,7 @@ function ConnFields(props: {
               value={c.identityId ?? ''}
               onChange={(e) => set({ identityId: e.target.value || undefined })}
             >
-              <option value="">— tidak ada —</option>
+              <option value="">(tidak ada)</option>
               {data.identities.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.label} ({i.username})
@@ -157,7 +157,7 @@ function ConnFields(props: {
                 value={c.proxyId ?? ''}
                 onChange={(e) => set({ proxyId: e.target.value || undefined })}
               >
-                <option value="">— langsung —</option>
+                <option value="">(langsung)</option>
                 {data.proxies.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label} ({p.type})
@@ -171,7 +171,7 @@ function ConnFields(props: {
                 value={c.startupSnippetId ?? ''}
                 onChange={(e) => set({ startupSnippetId: e.target.value || undefined })}
               >
-                <option value="">— tidak ada —</option>
+                <option value="">(tidak ada)</option>
                 {data.snippets.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}
@@ -293,7 +293,7 @@ function ConnFields(props: {
             value={c.theme ?? ''}
             onChange={(e) => set({ theme: e.target.value || undefined })}
           >
-            <option value="">— default —</option>
+            <option value="">(default)</option>
             {Object.entries(THEMES).map(([k, t]) => (
               <option key={k} value={k}>
                 {t.label}
@@ -490,7 +490,7 @@ export function HostEditor(props: {
             value={h.groupId ?? ''}
             onChange={(e) => setH({ ...h, groupId: e.target.value || undefined })}
           >
-            <option value="">— tanpa grup —</option>
+            <option value="">(tanpa grup)</option>
             {data.groups.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.label}
@@ -568,7 +568,7 @@ export function GroupEditor(props: { group?: Group; onClose(): void }): React.JS
             value={g.parentId ?? ''}
             onChange={(e) => setG({ ...g, parentId: e.target.value || undefined })}
           >
-            <option value="">— tidak ada —</option>
+            <option value="">(tidak ada)</option>
             {data.groups
               .filter((x) => x.id !== g.id)
               .map((x) => (

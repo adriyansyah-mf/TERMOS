@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { colorFor, pop, useDialogs, type DialogReq } from '../lib'
+import { pop, useDialogs, type DialogReq } from '../lib'
 
 export function Modal(props: {
   title: ReactNode
@@ -8,6 +8,7 @@ export function Modal(props: {
   wide?: boolean
   onClose?: () => void
 }): React.JSX.Element {
+  const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') props.onClose?.()
@@ -15,12 +16,22 @@ export function Modal(props: {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [props])
+  // Move keyboard focus into the dialog unless a field already claimed it.
+  useEffect(() => {
+    if (!box.current?.contains(document.activeElement))
+      box.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus()
+  }, [])
   return (
     <div
       className="modal-back"
       onMouseDown={(e) => e.target === e.currentTarget && props.onClose?.()}
     >
-      <div className={'modal' + (props.wide ? ' wide' : '')}>
+      <div
+        ref={box}
+        role="dialog"
+        aria-modal="true"
+        className={'modal' + (props.wide ? ' wide' : '')}
+      >
         <div className="modal-head">{props.title}</div>
         <div className="modal-body">{props.children}</div>
         {props.footer && <div className="modal-foot">{props.footer}</div>}
@@ -57,14 +68,6 @@ export function Check(props: {
       />
       {props.label}
     </label>
-  )
-}
-
-export function Avatar(props: { text: string; icon?: string }): React.JSX.Element {
-  return (
-    <div className="avatar" style={{ background: colorFor(props.text) }}>
-      {props.icon ?? props.text.slice(0, 2).toUpperCase()}
-    </div>
   )
 }
 

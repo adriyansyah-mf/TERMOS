@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Host } from '../../../shared/types'
 import { useStore } from '../store'
-import { Avatar, Modal } from './ui'
+import { Modal } from './ui'
 
 /** Searchable host list. Typing user@host:port and pressing Enter connects ad hoc. */
 export function HostPicker(props: {
@@ -57,22 +57,19 @@ export function HostPicker(props: {
       />
       <div style={{ marginTop: 10, maxHeight: 360, overflow: 'auto' }}>
         {list.map((h, i) => (
-          <div
+          <button
             key={h.id}
-            className="list-row"
-            style={{ cursor: 'pointer', background: i === sel ? 'var(--bg-4)' : undefined }}
+            className="menu-item"
+            style={{ background: i === sel ? 'var(--bg-4)' : undefined }}
             onMouseEnter={() => setSel(i)}
             onClick={() => props.onPick(h)}
           >
-            <Avatar text={h.label} />
-            <div className="ellipsis">
-              <div className="title">{h.label}</div>
-              <div className="dim small">
-                {h.protocol} · {h.config.username ? h.config.username + '@' : ''}
-                {h.address}
-              </div>
+            <div className="cell-title">{h.label}</div>
+            <div className="muted small mono">
+              {h.protocol} {h.config.username ? h.config.username + '@' : ''}
+              {h.address}
             </div>
-          </div>
+          </button>
         ))}
         {!list.length && (
           <div className="dim small" style={{ padding: 10 }}>

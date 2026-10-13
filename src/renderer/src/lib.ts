@@ -1,22 +1,6 @@
 import type { ReactNode } from 'react'
 import { create } from 'zustand'
 
-const PALETTE = [
-  '#5b8cff',
-  '#8b5bff',
-  '#3ccf91',
-  '#f2b84b',
-  '#f2616b',
-  '#36b3d6',
-  '#d65bb5',
-  '#7f8ea8'
-]
-export function colorFor(text: string): string {
-  let h = 0
-  for (const c of text) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length]
-}
-
 export function formatBytes(n?: number): string {
   if (!n) return '0 B'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']

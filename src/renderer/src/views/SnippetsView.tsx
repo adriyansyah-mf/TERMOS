@@ -71,46 +71,62 @@ export function SnippetsView(): React.JSX.Element {
         <h1>Snippets</h1>
         <span className="grow" />
         <button className="btn primary" onClick={() => setEditing({})}>
-          + Snippet
+          Snippet baru
         </button>
       </div>
-      <p className="muted small" style={{ marginTop: -8 }}>
-        Perintah yang sering dipakai. Jalankan dari tombol ⚡ Snippet di tab terminal, atau pasang
+      <p className="view-intro">
+        Perintah yang sering dipakai. Jalankan lewat tombol Snippet di tab terminal, atau pasang
         sebagai snippet saat login di pengaturan host.
       </p>
       {snippets.length === 0 ? (
         <div className="empty">
-          <div className="big">⚡</div>
-          Belum ada snippet.
+          <p>
+            Belum ada snippet. Simpan perintah yang sering kamu ketik, misalnya cek disk atau
+            restart service.
+          </p>
+          <button className="btn" onClick={() => setEditing({})}>
+            Snippet baru
+          </button>
         </div>
       ) : (
-        <div className="list">
-          {snippets.map((s) => (
-            <div key={s.id} className="list-row">
-              <div className="grow ellipsis">
-                <div className="title">{s.label}</div>
-                <div className="dim small mono ellipsis">{s.script.replace(/\n/g, ' ⏎ ')}</div>
-              </div>
-              <button className="btn sm" onClick={() => setEditing({ v: s })}>
-                Edit
-              </button>
-              <button
-                className="btn sm danger"
-                onClick={async () => {
-                  if (
-                    await confirmDialog('Hapus snippet', `Hapus "${s.label}"?`, {
-                      danger: true,
-                      okLabel: 'Hapus'
-                    })
-                  )
-                    await api.remove('snippets', s.id)
-                }}
-              >
-                Hapus
-              </button>
-            </div>
-          ))}
-        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Perintah</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {snippets.map((s) => (
+              <tr key={s.id}>
+                <td className="cell-title">{s.label}</td>
+                <td className="mono small ellipsis" style={{ maxWidth: 520 }}>
+                  {s.script.replace(/\n/g, ' ; ')}
+                </td>
+                <td className="actions">
+                  <button className="btn sm" onClick={() => setEditing({ v: s })}>
+                    Edit
+                  </button>
+                  <button
+                    className="btn sm ghost danger"
+                    onClick={async () => {
+                      if (
+                        await confirmDialog('Hapus snippet', `Hapus "${s.label}"?`, {
+                          danger: true,
+                          okLabel: 'Hapus'
+                        })
+                      )
+                        await api.remove('snippets', s.id)
+                    }}
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
       {editing && <SnippetEditor snippet={editing.v} onClose={() => setEditing(null)} />}
     </div>

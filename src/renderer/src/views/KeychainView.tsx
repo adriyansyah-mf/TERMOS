@@ -3,7 +3,7 @@ import { newId } from '../../../shared/merge'
 import type { Identity, ProxyDef, SshKey } from '../../../shared/types'
 import { api, errMsg } from '../api'
 import { useStore } from '../store'
-import { Avatar, Field, Modal } from '../components/ui'
+import { Field, Modal } from '../components/ui'
 import { confirmDialog } from '../lib'
 
 function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.Element {
@@ -106,13 +106,13 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
     >
       <div className="row" style={{ marginBottom: 14 }}>
         <button
-          className={'btn sm' + (mode === 'generate' ? ' primary' : '')}
+          className={'btn sm' + (mode === 'generate' ? ' on' : '')}
           onClick={() => setMode('generate')}
         >
           Buat baru
         </button>
         <button
-          className={'btn sm' + (mode === 'paste' ? ' primary' : '')}
+          className={'btn sm' + (mode === 'paste' ? ' on' : '')}
           onClick={() => setMode('paste')}
         >
           Tempel private key
@@ -247,7 +247,7 @@ function IdentityEditor({
           value={i.keyId ?? ''}
           onChange={(e) => setI({ ...i, keyId: e.target.value || undefined })}
         >
-          <option value="">— tidak ada —</option>
+          <option value="">(tidak ada)</option>
           {keys.map((k) => (
             <option key={k.id} value={k.id}>
               {k.label}
@@ -395,7 +395,7 @@ export function KeychainView(): React.JSX.Element {
           Import file key
         </button>
         <button className="btn primary" onClick={() => setNewKey(true)}>
-          + SSH key
+          SSH key baru
         </button>
       </div>
 
@@ -405,93 +405,125 @@ export function KeychainView(): React.JSX.Element {
           Belum ada key. Buat key Ed25519 baru atau import dari ~/.ssh.
         </div>
       ) : (
-        <div className="list">
-          {data.keys.map((k) => (
-            <div key={k.id} className="list-row">
-              <Avatar text={k.label} icon="🔑" />
-              <div
-                className="ellipsis grow"
-                style={{ cursor: 'pointer' }}
-                onClick={() => setDetail(k)}
-              >
-                <div className="title">{k.label}</div>
-                <div className="dim small">
-                  {k.keyType}
-                  {k.passphrase ? ' · berpassphrase' : ''}
-                  {k.certificate ? ' · sertifikat' : ''}
-                </div>
-              </div>
-              <button className="btn sm" onClick={() => setDetail(k)}>
-                Public key
-              </button>
-              <button className="btn sm danger" onClick={() => del('keys', k.id, k.label)}>
-                Hapus
-              </button>
-            </div>
-          ))}
-        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Tipe</th>
+              <th>Passphrase</th>
+              <th>Sertifikat</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {data.keys.map((k) => (
+              <tr key={k.id}>
+                <td className="cell-title">{k.label}</td>
+                <td className="mono small">{k.keyType}</td>
+                <td className="muted">{k.passphrase ? 'tersimpan' : 'tidak ada'}</td>
+                <td className="muted">{k.certificate ? 'ada' : ''}</td>
+                <td className="actions">
+                  <button className="btn sm" onClick={() => setDetail(k)}>
+                    Public key
+                  </button>
+                  <button
+                    className="btn sm ghost danger"
+                    onClick={() => del('keys', k.id, k.label)}
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       <div className="row">
         <div className="section-title grow">Identity</div>
         <button className="btn sm" onClick={() => setIdentity({})}>
-          + Identity
+          Identity baru
         </button>
       </div>
       {data.identities.length === 0 ? (
         <div className="dim small">Belum ada identity.</div>
       ) : (
-        <div className="list">
-          {data.identities.map((i) => (
-            <div key={i.id} className="list-row">
-              <Avatar text={i.label} icon="👤" />
-              <div className="grow ellipsis">
-                <div className="title">{i.label}</div>
-                <div className="dim small">
-                  {i.username}
-                  {i.password ? ' · password' : ''}
-                  {i.keyId ? ' · key' : ''}
-                </div>
-              </div>
-              <button className="btn sm" onClick={() => setIdentity({ v: i })}>
-                Edit
-              </button>
-              <button className="btn sm danger" onClick={() => del('identities', i.id, i.label)}>
-                Hapus
-              </button>
-            </div>
-          ))}
-        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Username</th>
+              <th>Login dengan</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {data.identities.map((i) => (
+              <tr key={i.id}>
+                <td className="cell-title">{i.label}</td>
+                <td className="mono small">{i.username}</td>
+                <td className="muted">
+                  {[i.password && 'password', i.keyId && 'key'].filter(Boolean).join(' + ') ||
+                    'tanya saat konek'}
+                </td>
+                <td className="actions">
+                  <button className="btn sm" onClick={() => setIdentity({ v: i })}>
+                    Edit
+                  </button>
+                  <button
+                    className="btn sm ghost danger"
+                    onClick={() => del('identities', i.id, i.label)}
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       <div className="row">
         <div className="section-title grow">Proxy</div>
         <button className="btn sm" onClick={() => setProxy({})}>
-          + Proxy
+          Proxy baru
         </button>
       </div>
       {data.proxies.length === 0 ? (
         <div className="dim small">Belum ada proxy.</div>
       ) : (
-        <div className="list">
-          {data.proxies.map((p) => (
-            <div key={p.id} className="list-row">
-              <Avatar text={p.label} icon="⇄" />
-              <div className="grow ellipsis">
-                <div className="title">{p.label}</div>
-                <div className="dim small">
-                  {p.type} · {p.type === 'command' ? p.command : `${p.host}:${p.port}`}
-                </div>
-              </div>
-              <button className="btn sm" onClick={() => setProxy({ v: p })}>
-                Edit
-              </button>
-              <button className="btn sm danger" onClick={() => del('proxies', p.id, p.label)}>
-                Hapus
-              </button>
-            </div>
-          ))}
-        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Tipe</th>
+              <th>Tujuan</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {data.proxies.map((p) => (
+              <tr key={p.id}>
+                <td className="cell-title">{p.label}</td>
+                <td className="muted">{p.type}</td>
+                <td className="mono small ellipsis" style={{ maxWidth: 360 }}>
+                  {p.type === 'command' ? p.command : `${p.host}:${p.port}`}
+                </td>
+                <td className="actions">
+                  <button className="btn sm" onClick={() => setProxy({ v: p })}>
+                    Edit
+                  </button>
+                  <button
+                    className="btn sm ghost danger"
+                    onClick={() => del('proxies', p.id, p.label)}
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {newKey && <NewKey onClose={() => setNewKey(false)} />}

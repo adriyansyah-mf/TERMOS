@@ -2,7 +2,7 @@
   "name": "termos",
   "productName": "Termos",
   "version": "0.1.0",
-  "description": "Termos — SSH client, SFTP, port forwarding & Proxmox manager",
+  "description": "Termos: SSH client, SFTP, port forwarding and Proxmox manager",
   "main": "./out/main/index.js",
   "author": {
     "name": "Termos",

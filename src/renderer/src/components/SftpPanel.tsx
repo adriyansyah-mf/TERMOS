@@ -223,7 +223,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
           }}
         >
           <button type="button" className="btn sm" onClick={up} title="Folder atas">
-            ↑
+            Atas
           </button>
           <input
             className="input mono small"
@@ -237,7 +237,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
             onClick={() => void load(cwd)}
             title="Muat ulang"
           >
-            ⟳
+            Muat ulang
           </button>
         </form>
         <div className="row wrap">
@@ -251,7 +251,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               })
             }
           >
-            ⇡ Unggah
+            Unggah
           </button>
           <button
             className="btn sm"
@@ -268,7 +268,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               }
             }}
           >
-            ⇣ Unduh
+            Unduh
           </button>
           <button
             className="btn sm"
@@ -277,7 +277,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               if (name) void run(() => api.sftpMkdir(sftpId!, join(name)))
             }}
           >
-            + Folder
+            Folder baru
           </button>
           <button
             className="btn sm"
@@ -331,7 +331,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               checked={showHidden}
               onChange={(e) => setShowHidden(e.target.checked)}
             />
-            tersembunyi
+            file tersembunyi
           </label>
         </div>
       </div>
@@ -347,10 +347,11 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
           </div>
         )}
         {visible.map((e) => (
-          <div
+          <button
             key={e.path}
             className={'sftp-item' + (selected.has(e.path) ? ' selected' : '')}
-            title={`${modeString(e.mode)}  ${e.path}`}
+            title={e.path}
+            aria-pressed={selected.has(e.path)}
             onClick={(ev) => {
               const next = new Set(ev.ctrlKey || ev.metaKey ? selected : [])
               if (next.has(e.path)) next.delete(e.path)
@@ -358,12 +359,22 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               setSelected(next)
             }}
             onDoubleClick={() => open(e)}
+            onKeyDown={(ev) => {
+              // Space selects (native button click); Enter opens, like a file manager.
+              if (ev.key === 'Enter') {
+                ev.preventDefault()
+                open(e)
+              }
+            }}
           >
-            <span>{e.isDir ? '📁' : e.isLink ? '🔗' : '📄'}</span>
-            <span className="ellipsis">{e.name}</span>
+            <span className={'ellipsis' + (e.isDir ? ' cell-title' : '')}>
+              {e.name}
+              {e.isDir ? '/' : e.isLink ? ' @' : ''}
+            </span>
             <span className="size">{e.isDir ? '' : formatBytes(e.size)}</span>
             <span className="date">{new Date(e.mtime).toLocaleDateString()}</span>
-          </div>
+            <span className="perm">{modeString(e.mode)}</span>
+          </button>
         ))}
       </div>
       {Object.values(transfers).length > 0 && (

@@ -12,14 +12,16 @@ import { ForwardsView } from './views/ForwardsView'
 import { ProxmoxView } from './views/ProxmoxView'
 import { HistoryView, KnownHostsView, SettingsView } from './views/SmallViews'
 
-const NAV: { view: View; icon: string; label: string }[] = [
-  { view: 'hosts', icon: '🖥', label: 'Hosts' },
-  { view: 'keychain', icon: '🔑', label: 'Keychain' },
-  { view: 'snippets', icon: '⚡', label: 'Snippets' },
-  { view: 'forwards', icon: '⇄', label: 'Port Forwarding' },
-  { view: 'proxmox', icon: '🗄', label: 'Proxmox' },
-  { view: 'knownHosts', icon: '🛡', label: 'Known Hosts' },
-  { view: 'history', icon: '🕘', label: 'Riwayat' }
+// Order matters: Ctrl+1..8 follows this list.
+const NAV: { view: View; label: string }[] = [
+  { view: 'hosts', label: 'Hosts' },
+  { view: 'keychain', label: 'Keychain' },
+  { view: 'snippets', label: 'Snippets' },
+  { view: 'forwards', label: 'Port forwarding' },
+  { view: 'proxmox', label: 'Proxmox' },
+  { view: 'knownHosts', label: 'Known hosts' },
+  { view: 'history', label: 'Riwayat' },
+  { view: 'settings', label: 'Settings' }
 ]
 
 function CurrentView({ view }: { view: View }): React.JSX.Element {
@@ -43,17 +45,41 @@ function CurrentView({ view }: { view: View }): React.JSX.Element {
   }
 }
 
+function NavButton({
+  item,
+  index
+}: {
+  item: (typeof NAV)[number]
+  index: number
+}): React.JSX.Element {
+  const active = useStore((s) => s.activeTab === null && s.view === item.view)
+  return (
+    <button
+      className={'nav-item' + (active ? ' active' : '')}
+      aria-current={active ? 'page' : undefined}
+      onClick={() => useStore.getState().setView(item.view)}
+    >
+      {item.label}
+      <kbd>Ctrl {index + 1}</kbd>
+    </button>
+  )
+}
+
 function Workspace(): React.JSX.Element {
   const view = useStore((s) => s.view)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
   const { setView, setActiveTab, closeTab, openSession } = useStore.getState()
   const [quick, setQuick] = useState(false)
+  const viewLabel = NAV.find((n) => n.view === view)?.label ?? 'Hosts'
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const { tabs, activeTab } = useStore.getState()
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && /^Digit[1-8]$/.test(e.code)) {
+        e.preventDefault()
+        setView(NAV[Number(e.code.slice(5)) - 1].view)
+      } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setQuick(true)
       } else if (e.ctrlKey && e.shiftKey && e.code === 'KeyT') {
@@ -69,77 +95,68 @@ function Workspace(): React.JSX.Element {
         e.preventDefault()
         const ids = [null, ...tabs.map((t) => t.id)]
         const i = ids.indexOf(activeTab)
-        const next = ids[(i + (e.shiftKey ? ids.length - 1 : 1)) % ids.length]
-        setActiveTab(next)
+        setActiveTab(ids[(i + (e.shiftKey ? ids.length - 1 : 1)) % ids.length])
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeTab, openSession, setActiveTab])
+  }, [closeTab, openSession, setActiveTab, setView])
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">T</div>
-          Termos
-        </div>
-        {NAV.map((n) => (
-          <button
-            key={n.view}
-            className={'nav-item' + (activeTab === null && view === n.view ? ' active' : '')}
-            onClick={() => setView(n.view)}
-          >
-            <span className="icon">{n.icon}</span>
-            {n.label}
-          </button>
+      <nav className="sidebar" aria-label="Menu">
+        <div className="wordmark">Termos</div>
+        {NAV.slice(0, -1).map((n, i) => (
+          <NavButton key={n.view} item={n} index={i} />
         ))}
         <div className="nav-spacer" />
-        <button
-          className={'nav-item' + (activeTab === null && view === 'settings' ? ' active' : '')}
-          onClick={() => setView('settings')}
-        >
-          <span className="icon">⚙</span>
-          Settings
-        </button>
-      </aside>
+        <NavButton item={NAV[NAV.length - 1]} index={NAV.length - 1} />
+      </nav>
       <main className="main">
-        <div className="tabbar">
-          <div
-            className={'tab' + (activeTab === null ? ' active' : '')}
-            onClick={() => setActiveTab(null)}
-          >
-            <span className="label">⌂ Vault</span>
+        <div className="tabbar" role="tablist">
+          <div className={'tab' + (activeTab === null ? ' active' : '')}>
+            <button
+              className="tab-main"
+              role="tab"
+              aria-selected={activeTab === null}
+              onClick={() => setActiveTab(null)}
+            >
+              <span className="label">{viewLabel}</span>
+            </button>
           </div>
           {tabs.map((t) => {
             const p = t.panes[t.focused] ?? t.panes[0]
             return (
-              <div
-                key={t.id}
-                className={'tab' + (activeTab === t.id ? ' active' : '')}
-                onClick={() => setActiveTab(t.id)}
-                onAuxClick={(e) => e.button === 1 && closeTab(t.id)}
-                title={t.panes.map((x) => x.label).join(' | ')}
-              >
-                <span className={'dot ' + p.status} />
-                <span className="label">
-                  {p.label}
-                  {t.panes.length > 1 ? ` +${t.panes.length - 1}` : ''}
-                </span>
+              <div key={t.id} className={'tab' + (activeTab === t.id ? ' active' : '')}>
                 <button
-                  className="x"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    closeTab(t.id)
-                  }}
+                  className="tab-main"
+                  role="tab"
+                  aria-selected={activeTab === t.id}
+                  title={t.panes.map((x) => x.label).join(' | ')}
+                  onClick={() => setActiveTab(t.id)}
+                  onAuxClick={(e) => e.button === 1 && closeTab(t.id)}
+                >
+                  <span className={'dot ' + p.status} aria-label={p.status} />
+                  <span className="label">
+                    {p.label}
+                    {t.panes.length > 1 ? ` +${t.panes.length - 1}` : ''}
+                  </span>
+                </button>
+                <button
+                  className="tab-close"
+                  aria-label={`Tutup ${p.label}`}
+                  title="Tutup (Ctrl+Shift+W)"
+                  onClick={() => closeTab(t.id)}
                 >
                   ✕
                 </button>
               </div>
             )
           })}
-          <div className="tab" title="Sesi baru (Ctrl+K)" onClick={() => setQuick(true)}>
-            ＋
+          <div className="tab">
+            <button className="tab-main" title="Sesi baru (Ctrl+K)" onClick={() => setQuick(true)}>
+              Sesi baru
+            </button>
           </div>
         </div>
         <div className="content" style={{ overflow: activeTab ? 'hidden' : 'auto' }}>

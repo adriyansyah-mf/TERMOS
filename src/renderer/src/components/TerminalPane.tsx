@@ -141,15 +141,20 @@ export const TerminalPane = forwardRef<
       onMouseDown={onFocus}
     >
       <div className="pane-head">
-        <span className={'dot ' + pane.status} />
+        <span className={'dot ' + pane.status} aria-label={pane.status} />
         <span className="ellipsis">{pane.label}</span>
         <span className="grow" />
         {ended && (
-          <button className="btn sm ghost" onClick={onReconnect} title="Sambung ulang">
-            ⟳
+          <button className="btn sm ghost" onClick={onReconnect}>
+            Sambung ulang
           </button>
         )}
-        <button className="btn sm ghost" onClick={onClose} title="Tutup panel">
+        <button
+          className="btn sm ghost"
+          onClick={onClose}
+          title="Tutup panel"
+          aria-label={`Tutup panel ${pane.label}`}
+        >
           ✕
         </button>
       </div>

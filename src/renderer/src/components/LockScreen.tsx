@@ -43,11 +43,8 @@ export function LockScreen(): React.JSX.Element {
   return (
     <div className="lock">
       <form className="lock-card" onSubmit={submit}>
-        <div className="brand">
-          <div className="brand-mark">T</div>
-          Termos
-        </div>
-        <p className="muted small" style={{ textAlign: 'center', marginTop: 0 }}>
+        <h1>Termos</h1>
+        <p className="muted" style={{ marginTop: 0 }}>
           {creating
             ? 'Buat master password. Semua host, key, dan password disimpan terenkripsi dengan password ini.'
             : 'Masukkan master password untuk membuka vault.'}

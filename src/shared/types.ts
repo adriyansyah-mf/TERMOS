@@ -231,7 +231,7 @@ export const COLLECTIONS: CollectionName[] = [
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'termos-dark',
-  fontFamily: "'JetBrains Mono', 'Fira Code', 'DejaVu Sans Mono', monospace",
+  fontFamily: "ui-monospace, 'DejaVu Sans Mono', Menlo, Consolas, monospace",
   fontSize: 14,
   cursorBlink: true,
   scrollback: 10000,

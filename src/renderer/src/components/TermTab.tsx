@@ -41,51 +41,49 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           disabled={n >= 4}
           title="Belah layar (maks 4)"
         >
-          ⊞ Split
+          Split
         </button>
         <button
-          className={'btn sm' + (tab.sftp ? ' primary' : '')}
+          className={'btn sm' + (tab.sftp ? ' on' : '')}
+          aria-pressed={!!tab.sftp}
           disabled={!sftpAvailable && !tab.sftp}
           onClick={() => toggleSftp(tab.id)}
           title={
             sftpAvailable ? 'Buka file manager SFTP' : 'SFTP hanya untuk host SSH yang tersimpan'
           }
         >
-          📁 SFTP
+          SFTP
         </button>
         <div style={{ position: 'relative' }}>
-          <button className="btn sm" onClick={() => setShowSnippets(!showSnippets)}>
-            ⚡ Snippet
+          <button
+            className={'btn sm' + (showSnippets ? ' on' : '')}
+            aria-expanded={showSnippets}
+            onClick={() => setShowSnippets(!showSnippets)}
+          >
+            Snippet
           </button>
           {showSnippets && (
             <div
-              className="list"
-              style={{
-                position: 'absolute',
-                top: 30,
-                left: 0,
-                zIndex: 20,
-                width: 280,
-                maxHeight: 320,
-                overflow: 'auto',
-                boxShadow: '0 10px 30px rgb(0 0 0 / 40%)'
+              className="menu"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setShowSnippets(false)
               }}
             >
               {!snippets.length && (
-                <div className="list-row dim small">Belum ada snippet. Buat di menu Snippets.</div>
+                <div className="muted small" style={{ padding: 10 }}>
+                  Belum ada snippet. Buat di menu Snippets (Ctrl 3).
+                </div>
               )}
-              {snippets.map((s) => (
-                <div
+              {snippets.map((s, i) => (
+                <button
                   key={s.id}
-                  className="list-row"
-                  style={{ cursor: 'pointer' }}
+                  className="menu-item"
+                  autoFocus={i === 0}
                   onClick={() => runSnippet(s.script)}
                 >
-                  <div className="ellipsis">
-                    <div className="title">{s.label}</div>
-                    <div className="dim small mono ellipsis">{s.script.split('\n')[0]}</div>
-                  </div>
-                </div>
+                  <div className="cell-title ellipsis">{s.label}</div>
+                  <div className="muted small mono ellipsis">{s.script.split('\n')[0]}</div>
+                </button>
               ))}
             </div>
           )}
