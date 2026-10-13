@@ -61,7 +61,7 @@ const handlers: Handlers = {
   serialPorts: () => listSerialPorts(),
 
   keyGenerate: (label, kind, pass) => vault.upsert<SshKey>('keys', generateKey(label, kind, pass)),
-  keyImportFile: (() =>
+  keyImportFile: () =>
     dialog
       .showOpenDialog(win!, {
         title: 'Pilih private key',
@@ -71,7 +71,7 @@ const handlers: Handlers = {
       .then((r) => {
         if (r.canceled || !r.filePaths[0]) return null
         return vault.upsert<SshKey>('keys', importKeyFile(r.filePaths[0]))
-      })),
+      }),
   keyImportText: (label, priv, pass, cert) =>
     vault.upsert<SshKey>('keys', keyFromPrivate(label, priv, pass, cert)),
   keyFingerprint: (id) => {
@@ -94,7 +94,7 @@ const handlers: Handlers = {
   sftpChmod: (id, p, m) => sftpManager.chmod(id, p, m),
   sftpReadText: (id, p) => sftpManager.readText(id, p),
   sftpWriteText: (id, p, t) => sftpManager.writeText(id, p, t),
-  sftpDownload: ((id: string, items: { path: string; isDir: boolean }[]) =>
+  sftpDownload: (id: string, items: { path: string; isDir: boolean }[]) =>
     dialog
       .showOpenDialog(win!, {
         title: 'Simpan ke folder',
@@ -106,8 +106,8 @@ const handlers: Handlers = {
         if (r.canceled || !dir) return null
         for (const it of items) await sftpManager.download(id, it.path, dir, it.isDir)
         return dir
-      })),
-  sftpUploadDialog: ((id: string, remoteDir: string) =>
+      }),
+  sftpUploadDialog: (id: string, remoteDir: string) =>
     dialog
       .showOpenDialog(win!, {
         title: 'Pilih file untuk diunggah',
@@ -117,27 +117,23 @@ const handlers: Handlers = {
         if (r.canceled) return 0
         for (const f of r.filePaths) await sftpManager.upload(id, f, remoteDir)
         return r.filePaths.length
-      })),
-  sftpUploadPaths: (async (id: string, paths: string[], remoteDir: string) => {
+      }),
+  sftpUploadPaths: async (id: string, paths: string[], remoteDir: string) => {
     for (const f of paths) await sftpManager.upload(id, f, remoteDir)
-  }),
+  },
 
   pveVersion: (server) => proxmoxClient(server).version(),
   pveProbe: (url) => probeCertificate(url),
   pveResources: (id) => pve(id).resources(),
-  pveAction: (id, node, type, vmid, action) =>
-    pve(id).guestAction(node, type, vmid, action),
-  pveSnapshots: (id, node, type, vmid) =>
-    pve(id).snapshots(node, type, vmid),
+  pveAction: (id, node, type, vmid, action) => pve(id).guestAction(node, type, vmid, action),
+  pveSnapshots: (id, node, type, vmid) => pve(id).snapshots(node, type, vmid),
   pveSnapshotCreate: (id, node, type, vmid, name) =>
     pve(id).createSnapshot(node, type, vmid, name, 'Dibuat dari Termos'),
   pveSnapshotRollback: (id, node, type, vmid, name) =>
     pve(id).rollbackSnapshot(node, type, vmid, name),
-  pveSnapshotDelete: (id, node, type, vmid, name) =>
-    pve(id).deleteSnapshot(node, type, vmid, name),
+  pveSnapshotDelete: (id, node, type, vmid, name) => pve(id).deleteSnapshot(node, type, vmid, name),
   pveTasks: (id, node) => pve(id).tasks(node),
-  pveGuestAddresses: (id, node, type, vmid) =>
-    pve(id).guestAddresses(node, type, vmid),
+  pveGuestAddresses: (id, node, type, vmid) => pve(id).guestAddresses(node, type, vmid),
   pveOpenConsole: (id, node, type, vmid, name) => {
     void shell.openExternal(pve(id).consoleUrl(node, type, vmid, name))
   },

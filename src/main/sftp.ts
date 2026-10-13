@@ -120,7 +120,8 @@ class SftpManager {
   async readText(id: string, path: string): Promise<string> {
     const { sftp } = this.get(id)
     const st = await p<Stats>((cb) => sftp.stat(path, cb))
-    if (st.size > 2 * 1024 * 1024) throw new Error('File terlalu besar untuk dibuka di editor (> 2 MB)')
+    if (st.size > 2 * 1024 * 1024)
+      throw new Error('File terlalu besar untuk dibuka di editor (> 2 MB)')
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
       const rs = sftp.createReadStream(path)

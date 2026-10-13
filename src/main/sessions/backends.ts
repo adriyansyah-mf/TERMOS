@@ -146,9 +146,13 @@ function tempKeyFile(r: ResolvedHost): { args: string[]; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'termos-'))
   chmodSync(dir, 0o700)
   const keyPath = join(dir, 'id')
-  writeFileSync(keyPath, r.key.privateKey.endsWith('\n') ? r.key.privateKey : r.key.privateKey + '\n', {
-    mode: 0o600
-  })
+  writeFileSync(
+    keyPath,
+    r.key.privateKey.endsWith('\n') ? r.key.privateKey : r.key.privateKey + '\n',
+    {
+      mode: 0o600
+    }
+  )
   const args = ['-i', keyPath, '-o', 'IdentitiesOnly=yes']
   if (r.key.certificate) {
     writeFileSync(keyPath + '-cert.pub', r.key.certificate, { mode: 0o600 })

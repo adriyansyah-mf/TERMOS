@@ -109,7 +109,8 @@ export function importSshConfig(path = join(homedir(), '.ssh', 'config')): Impor
       else result.skipped.push(`${alias}: ProxyJump ${hop} tidak dikenal`)
     }
     const host = vault.find<Host>('hosts', hostIdByAlias.get(alias))
-    if (host && chain.length) vault.upsert('hosts', { ...host, config: { ...host.config, hostChain: chain } })
+    if (host && chain.length)
+      vault.upsert('hosts', { ...host, config: { ...host.config, hostChain: chain } })
   }
   return result
 }

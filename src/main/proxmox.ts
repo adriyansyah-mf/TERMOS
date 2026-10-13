@@ -55,7 +55,9 @@ function pinnedAgent(expected: string): https.Agent {
   return agent
 }
 
-export function probeCertificate(baseUrl: string): Promise<{ fingerprint: string; subject: string }> {
+export function probeCertificate(
+  baseUrl: string
+): Promise<{ fingerprint: string; subject: string }> {
   const u = new URL(baseUrl)
   return new Promise((resolve, reject) => {
     const socket = tls.connect({
@@ -92,7 +94,12 @@ export class ProxmoxClient {
     return this.server.url.replace(/\/+$/, '')
   }
 
-  private raw<T>(method: string, path: string, body?: Body, auth?: Record<string, string>): Promise<T> {
+  private raw<T>(
+    method: string,
+    path: string,
+    body?: Body,
+    auth?: Record<string, string>
+  ): Promise<T> {
     const u = new URL(this.base() + '/api2/json' + path)
     let payload: string | undefined
     if (body) {
@@ -199,7 +206,11 @@ export class ProxmoxClient {
   }
 
   guestAction(node: string, type: GuestType, vmid: number, action: GuestAction): Promise<string> {
-    return this.request('POST', `/nodes/${encodeURIComponent(node)}/${type}/${vmid}/status/${action}`, {})
+    return this.request(
+      'POST',
+      `/nodes/${encodeURIComponent(node)}/${type}/${vmid}/status/${action}`,
+      {}
+    )
   }
 
   snapshots(node: string, type: GuestType, vmid: number): Promise<PveSnapshot[]> {
@@ -209,7 +220,13 @@ export class ProxmoxClient {
     ).then((l) => l.filter((s) => s.name !== 'current'))
   }
 
-  createSnapshot(node: string, type: GuestType, vmid: number, name: string, description?: string): Promise<string> {
+  createSnapshot(
+    node: string,
+    type: GuestType,
+    vmid: number,
+    name: string,
+    description?: string
+  ): Promise<string> {
     return this.request('POST', `/nodes/${encodeURIComponent(node)}/${type}/${vmid}/snapshot`, {
       snapname: name,
       description
@@ -238,12 +255,15 @@ export class ProxmoxClient {
   /** Best-effort guest IPv4 addresses (QEMU guest agent or LXC interfaces). */
   async guestAddresses(node: string, type: GuestType, vmid: number): Promise<string[]> {
     const out: string[] = []
-    const usable = (ip: string): boolean => !!ip && !ip.startsWith('127.') && !ip.startsWith('169.254.')
+    const usable = (ip: string): boolean =>
+      !!ip && !ip.startsWith('127.') && !ip.startsWith('169.254.')
     if (type === 'qemu') {
-      const r = await this.request<{ result: { name: string; 'ip-addresses'?: { 'ip-address-type': string; 'ip-address': string }[] }[] }>(
-        'GET',
-        `/nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/network-get-interfaces`
-      )
+      const r = await this.request<{
+        result: {
+          name: string
+          'ip-addresses'?: { 'ip-address-type': string; 'ip-address': string }[]
+        }[]
+      }>('GET', `/nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/network-get-interfaces`)
       for (const iface of r.result ?? []) {
         if (iface.name === 'lo') continue
         for (const a of iface['ip-addresses'] ?? [])

@@ -74,7 +74,12 @@ export interface TermosApi {
 
   keyGenerate(label: string, kind: 'ed25519' | 'rsa' | 'ecdsa', passphrase?: string): SshKey
   keyImportFile(): SshKey | null
-  keyImportText(label: string, privateKey: string, passphrase?: string, certificate?: string): SshKey
+  keyImportText(
+    label: string,
+    privateKey: string,
+    passphrase?: string,
+    certificate?: string
+  ): SshKey
   keyFingerprint(keyId: string): string
   importSshConfig(): ImportResult
 
@@ -101,21 +106,53 @@ export interface TermosApi {
   pveVersion(server: ProxmoxServer): { version: string; release: string }
   pveProbe(url: string): { fingerprint: string; subject: string }
   pveResources(serverId: string): PveResource[]
-  pveAction(serverId: string, node: string, type: GuestType, vmid: number, action: GuestAction): void
+  pveAction(
+    serverId: string,
+    node: string,
+    type: GuestType,
+    vmid: number,
+    action: GuestAction
+  ): void
   pveSnapshots(serverId: string, node: string, type: GuestType, vmid: number): PveSnapshot[]
-  pveSnapshotCreate(serverId: string, node: string, type: GuestType, vmid: number, name: string): void
-  pveSnapshotRollback(serverId: string, node: string, type: GuestType, vmid: number, name: string): void
-  pveSnapshotDelete(serverId: string, node: string, type: GuestType, vmid: number, name: string): void
+  pveSnapshotCreate(
+    serverId: string,
+    node: string,
+    type: GuestType,
+    vmid: number,
+    name: string
+  ): void
+  pveSnapshotRollback(
+    serverId: string,
+    node: string,
+    type: GuestType,
+    vmid: number,
+    name: string
+  ): void
+  pveSnapshotDelete(
+    serverId: string,
+    node: string,
+    type: GuestType,
+    vmid: number,
+    name: string
+  ): void
   pveTasks(serverId: string, node: string): PveTask[]
   pveGuestAddresses(serverId: string, node: string, type: GuestType, vmid: number): string[]
-  pveOpenConsole(serverId: string, node: string, type?: GuestType, vmid?: number, name?: string): void
+  pveOpenConsole(
+    serverId: string,
+    node: string,
+    type?: GuestType,
+    vmid?: number,
+    name?: string
+  ): void
 
   openExternal(url: string): void
   appVersion(): string
 }
 
 export type Promisified<T> = {
-  [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : never
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : never
 }
 
 /** Events pushed from main to renderer. */
