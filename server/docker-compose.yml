@@ -1,18 +1,119 @@
-# Termos sync server. Put it behind HTTPS (see Caddyfile.example) before using it over the internet.
+# Termos sync server: PostgreSQL + API, with optional HTTPS via Caddy.
+#
+#   ./setup.sh                                  # once: generates secrets/ and .env
+#   docker compose up -d --build                # API on 127.0.0.1:8080 (put your own proxy in front)
+#   docker compose --profile https up -d --build  # Caddy on :80/:443 with automatic certificates
+#
+# Every container runs as non-root (except the Postgres entrypoint, which drops
+# to the postgres user after init), with a read-only filesystem, no Linux
+# capabilities beyond what it needs, and no privilege escalation.
+
+name: termos
+
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
 services:
-  termos:
-    build: .
-    image: termos-server:0.1.0
-    restart: unless-stopped
+  db:
+    <<: *hardening
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    # The entrypoint fixes data-dir ownership, then drops to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     environment:
-      # first  = only the first account may sign up (that account becomes admin)
-      # invite = anyone with TERMOS_INVITE_CODE may sign up
-      # open   = anyone who can reach the server may sign up
-      TERMOS_SIGNUP: first
-      # TERMOS_INVITE_CODE: change-me
-      # Set to 1 when a reverse proxy sets X-Forwarded-For (used for login rate limiting).
-      TERMOS_TRUST_PROXY: "1"
+      POSTGRES_USER: termos
+      POSTGRES_DB: termos
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    secrets:
+      - db_password
     volumes:
-      - ./data:/data
+      - db-data:/var/lib/postgresql/data
+    tmpfs:
+      - /var/run/postgresql:uid=70,gid=70,mode=0700
+      - /tmp:mode=1777
+    networks:
+      - backend
+    shm_size: 128m
+    mem_limit: 512m
+    pids_limit: 200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U termos -d termos -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    <<: *hardening
+    build: .
+    image: termos-server:0.2.0
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TERMOS_DB_HOST: db
+      TERMOS_DB_USER: termos
+      TERMOS_DB_NAME: termos
+      TERMOS_DB_PASSWORD_FILE: /run/secrets/db_password
+      TERMOS_SIGNUP: ${TERMOS_SIGNUP:-first}
+      TERMOS_INVITE_CODE: ${TERMOS_INVITE_CODE:-}
+      # Caddy (or your own proxy) sets X-Forwarded-For; used for rate limiting.
+      TERMOS_TRUST_PROXY: "1"
+    secrets:
+      - db_password
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    networks:
+      - backend
+      - frontend
     ports:
-      - "127.0.0.1:8080:8080"
+      # Loopback only. Expose to the network through HTTPS (Caddy profile or your proxy).
+      - "127.0.0.1:${TERMOS_PORT:-8080}:8080"
+    mem_limit: 256m
+    pids_limit: 100
+
+  caddy:
+    <<: *hardening
+    profiles: [https]
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    cap_add: [NET_BIND_SERVICE]
+    depends_on:
+      - api
+    environment:
+      TERMOS_DOMAIN: ${TERMOS_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - frontend
+    mem_limit: 128m
+    pids_limit: 100
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # The database has no route to the outside world and is not published.
+  backend:
+    internal: true
+  frontend:

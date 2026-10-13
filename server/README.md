@@ -1,86 +1,89 @@
 # termos-server
 
-Self-hosted backend for Termos: vault sync between devices, team vaults, and live terminal sharing.
+Backend self-hosted untuk Termos: sync vault antar perangkat, vault tim, dan berbagi sesi terminal live.
+Isi vault dienkripsi di perangkat sebelum dikirim; server hanya menyimpan ciphertext. Lihat `../SECURITY.md` untuk model ancaman lengkap.
 
-## What the server can and cannot see
+## Komponen
 
-Everything in your vault (hosts, passwords, keys, snippets) is encrypted on your device before it is sent. The server stores:
+| Container | Isi | Keterangan |
+|---|---|---|
+| `db` | PostgreSQL 17 | Jaringan internal saja, tanpa internet, port tidak dipublikasikan, SCRAM-SHA-256, password dari Docker secret |
+| `api` | Node 24 + `ws` + `pg` | User `node`, filesystem read-only, tanpa capability, tanpa npm di image |
+| `caddy` (opsional) | Caddy 2 | HTTPS otomatis (Let's Encrypt) + HSTS, profil `https` |
 
-| Stored | Readable by the server |
-|---|---|
-| Username, device names, team names, team membership | Yes |
-| Record ids, timestamps, deleted flag | Yes |
-| Record contents (host, password, key, …) | No: XChaCha20-Poly1305 ciphertext |
-| Your password | Never sent. The app derives two keys with Argon2id; only the login key is sent, and the server stores a scrypt hash of it |
-| Shared terminal output | No: encrypted with a key that only exists in the share link |
+Semua image dipin dengan digest. Semua container memakai `read_only`, `no-new-privileges`, `cap_drop: ALL`, batas memori dan jumlah proses.
 
-Consequence: if you forget your account password, the server admin cannot recover your synced vault. Your local vault on each device keeps working.
-
-## Run with Docker
+## Menjalankan
 
 ```sh
 cd server
-docker compose up -d --build
+./setup.sh                      # sekali: membuat secrets/db_password dan .env
+docker compose up -d --build    # API di 127.0.0.1:8080
 curl http://127.0.0.1:8080/api/status
 ```
 
-Data lives in `./data/termos.db` (SQLite). Back up that file.
+### Dengan HTTPS (disarankan untuk akses dari internet)
 
-The compose file binds to `127.0.0.1` only. To use it from other machines, put HTTPS in front:
+1. Arahkan DNS domain (misalnya `termos.domainmu.id`) ke server ini, buka port 80 dan 443.
+2. Isi `TERMOS_DOMAIN=termos.domainmu.id` di `.env`.
+3. `docker compose --profile https up -d --build`
 
-- **Caddy** (simplest): copy `Caddyfile.example`, set your domain, run Caddy. It handles certificates.
-- **Proxmox / LAN only**: run it in an LXC or VM and use a reverse proxy you already have (Nginx Proxy Manager, Traefik). Plain HTTP is accepted by the app only for `localhost` and private LAN addresses.
+### Di Proxmox / LAN
 
-## Run without Docker
+Jalankan di LXC atau VM, lalu pakai profil `https` atau reverse proxy yang sudah ada (Nginx Proxy Manager, Traefik). Aplikasi menerima `http://` hanya untuk localhost dan alamat jaringan lokal.
 
-Needs Node.js 22.5 or newer (uses the built-in `node:sqlite`).
+## Pengaturan (`.env`)
+
+| Variabel | Default | Arti |
+|---|---|---|
+| `TERMOS_SIGNUP` | `first` | `first`: hanya akun pertama yang boleh daftar dan jadi admin. `invite`: daftar butuh `TERMOS_INVITE_CODE` (min. 16 karakter). `open`: siapa pun yang bisa mengakses server |
+| `TERMOS_INVITE_CODE` | acak dari `setup.sh` | Kode undangan untuk mode `invite` |
+| `TERMOS_DOMAIN` | | Domain untuk profil `https` |
+| `TERMOS_PORT` | `8080` | Port API di 127.0.0.1 |
+| `TERMOS_TOKEN_IDLE_DAYS` | `90` | Token perangkat kedaluwarsa setelah selama ini tidak dipakai |
+| `TERMOS_MAX_RECORDS` / `TERMOS_MAX_MB` | `20000` / `256` | Kuota per vault (pribadi atau tim) |
+| `TERMOS_SIGNUP_PER_HOUR` | `10` | Batas percobaan daftar per IP per jam |
+
+Alur umum untuk tim kecil: mulai dengan `first`, buat akunmu dari aplikasi, ganti ke `invite`, `docker compose up -d`, lalu bagikan kode undangannya.
+
+## Backup
 
 ```sh
-cd server
-npm ci
-npm run build
-TERMOS_DB=/var/lib/termos/termos.db node dist/index.js
+docker compose exec -T db pg_dump -U termos termos | gzip > termos-$(date +%F).sql.gz
 ```
 
-## Settings (environment variables)
+Isi backup tetap terenkripsi (ciphertext), tapi simpan juga dengan aman: metadata seperti username dan nama tim terbaca.
+Restore: `gunzip -c termos-YYYY-MM-DD.sql.gz | docker compose exec -T db psql -U termos termos`.
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `TERMOS_PORT` | `8080` | Listen port |
-| `TERMOS_HOST` | `0.0.0.0` | Listen address |
-| `TERMOS_DB` | `./data/termos.db` | SQLite file |
-| `TERMOS_SIGNUP` | `first` | `first`: only the first account can sign up and becomes admin. `invite`: sign up needs `TERMOS_INVITE_CODE`. `open`: anyone can sign up |
-| `TERMOS_INVITE_CODE` | | Required when `TERMOS_SIGNUP=invite` |
-| `TERMOS_TRUST_PROXY` | `0` | `1` to read the client IP from `X-Forwarded-For` (set this behind a reverse proxy) |
+## Update
 
-Typical setup for a small team: start with `first`, create your own account from the app, then switch to `invite`, restart, and give teammates the code.
+```sh
+git pull
+docker compose up -d --build
+```
 
-## Connecting the app
+Migrasi database berjalan otomatis saat API start.
 
-Termos, Settings, Sync: enter the server URL (for example `https://termos.example.com`), a username and the account password, then **Daftar** (first time) or **Masuk**.
+## Tes
+
+```sh
+npm ci
+npm test        # menjalankan Postgres sementara di Docker, lalu 21 tes integrasi
+```
 
 ## API
 
-All endpoints are JSON under `/api`. Authenticated calls use `Authorization: Bearer <token>`.
+Semua endpoint JSON di bawah `/api`; yang butuh login memakai `Authorization: Bearer <token>`.
 
-| Method | Path | Purpose |
+| Method | Path | Fungsi |
 |---|---|---|
-| GET | `/status` | Signup mode, user count |
-| POST | `/prelogin` | KDF parameters for a username (fake but stable for unknown names) |
-| POST | `/register`, `/login`, `/logout` | Accounts and device tokens |
-| POST | `/password` | Change password (re-wrapped keys); signs out other devices |
-| GET/DELETE | `/devices`, `/devices/:id` | List and revoke devices |
-| GET/POST | `/sync?since=N[&scope=…]` | Pull / push encrypted records (last writer wins) |
-| GET/POST/DELETE | `/teams`, `/teams/:id`, `/teams/:id/members[/:userId]` | Team vaults |
-| GET | `/users/:username/key` | Public key for sealing a team key to a new member |
-| WS | `/share/host`, `/share/join/:id` | Live terminal sharing relay |
-
-## Tests
-
-```sh
-npm test
-```
-
-Known limits:
-
-- Removing a team member stops their access to new syncs, but anything they already downloaded stays on their device, and the team key is not rotated. Create a new team if you need to fully cut someone off.
+| GET | `/status` | Mode pendaftaran, jumlah akun |
+| POST | `/prelogin` | Parameter KDF untuk username (palsu tapi stabil untuk yang tidak ada) |
+| POST | `/register`, `/login`, `/logout` | Akun dan token perangkat |
+| GET / DELETE | `/me` | Profil; hapus akun (butuh authKey) |
+| POST | `/password` | Ganti password (kunci dibungkus ulang); perangkat lain dikeluarkan |
+| GET / DELETE | `/devices`, `/devices/:id` | Daftar dan cabut perangkat |
+| GET / POST | `/sync?since=N[&scope=…]` | Tarik / kirim record terenkripsi (last writer wins) |
+| GET / POST / DELETE | `/teams`, `/teams/:id`, `/teams/:id/members[/:userId]` | Vault tim |
+| GET | `/users/:username/key` | Public key untuk menyegel kunci tim |
+| WS | `/share/host`, `/share/join/:id` | Relay berbagi sesi |

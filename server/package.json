@@ -10,13 +10,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && sh test/run.sh"
   },
   "dependencies": {
+    "pg": "^8.23.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.16.5",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"
   }

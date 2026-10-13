@@ -1,0 +1,15 @@
+# Used by the "https" profile in docker-compose.yml. Caddy obtains and renews the
+# certificate automatically; point the DNS of TERMOS_DOMAIN at this machine first.
+{$TERMOS_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		-Server
+	}
+	request_body {
+		max_size 20MB
+	}
+	reverse_proxy api:8080 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

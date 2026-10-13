@@ -1,7 +1,15 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { fakeKdf, hashAuthKey, Limiter, newToken, tokenHash, verifyAuthKey } from './auth.ts'
-import { nextSeq, tx, type DB } from './db.ts'
+import {
+  fakeKdf,
+  hashAuthKey,
+  Limiter,
+  newToken,
+  tokenHash,
+  verifyAgainstDummy,
+  verifyAuthKey
+} from './auth.ts'
+import { RECORD_WRITE_LOCK, withTx, type DB } from './db.ts'
 
 export interface Config {
   /** 'first' (default): only the first account may self-register; 'open': anyone; 'invite': needs inviteCode. */
@@ -9,6 +17,13 @@ export interface Config {
   inviteCode?: string
   /** Secret for fake prelogin answers; generated once and kept in the DB. */
   secret: string
+  /** Device tokens unused for this long stop working. */
+  tokenIdleMs: number
+  /** Per vault (personal or team) storage limits. */
+  maxRecords: number
+  maxBytes: number
+  /** Registration attempts per IP per hour. */
+  signupPerHour: number
 }
 
 interface UserRow {
@@ -16,14 +31,14 @@ interface UserRow {
   username: string
   auth_hash: string
   auth_salt: string
-  kdf: string
-  wrapped_key: string
+  kdf: Record<string, unknown>
+  wrapped_key: Record<string, unknown>
   public_key: string
-  wrapped_private_key: string
-  is_admin: number
+  wrapped_private_key: Record<string, unknown>
+  is_admin: boolean
 }
 
-interface Authed {
+export interface Authed {
   user: UserRow
   deviceId: string
 }
@@ -38,18 +53,54 @@ export class HttpError extends Error {
 
 const MAX_BODY = 16 * 1024 * 1024
 const USERNAME = /^[a-zA-Z0-9._-]{3,40}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+// ── input validation ────────────────────────────────────────────────────────
 
 function str(v: unknown, name: string, max = 20000): string {
   if (typeof v !== 'string' || !v || v.length > max) throw new HttpError(400, `Field "${name}" tidak valid`)
   return v
 }
 
-function json(v: unknown, name: string): string {
-  if (!v || typeof v !== 'object') throw new HttpError(400, `Field "${name}" tidak valid`)
-  return JSON.stringify(v)
+/** base64 that must decode to exactly `bytes` bytes (keys, salts). */
+function b64(v: unknown, name: string, bytes: number): string {
+  const s = str(v, name, 200)
+  if (!/^[A-Za-z0-9+/]+=*$/.test(s) || Buffer.from(s, 'base64').length !== bytes)
+    throw new HttpError(400, `Field "${name}" harus ${bytes} byte base64`)
+  return s
+}
+
+/** An encrypted box from the client: only these string fields, bounded. */
+function box(v: unknown, name: string, fields: string[], max = 4096): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `Field "${name}" tidak valid`)
+  const out: Record<string, string> = {}
+  for (const f of fields) out[f] = str((v as Record<string, unknown>)[f], `${name}.${f}`, max)
+  return out
+}
+
+/** Refuse weak KDF settings so a careless or malicious client cannot weaken an account. */
+function kdf(v: unknown): Record<string, unknown> {
+  if (!v || typeof v !== 'object') throw new HttpError(400, 'Field "kdf" tidak valid')
+  const k = v as Record<string, unknown>
+  const m = Number(k.m)
+  const t = Number(k.t)
+  const p = Number(k.p)
+  if (k.alg !== 'argon2id' || !(m >= 65536 && m <= 1048576) || !(t >= 3 && t <= 20) || !(p >= 1 && p <= 8))
+    throw new HttpError(400, 'Parameter KDF terlalu lemah atau tidak valid')
+  return { alg: 'argon2id', salt: b64(k.salt, 'kdf.salt', 16), m, t, p }
+}
+
+function uuid(v: unknown, name: string): string {
+  const s = str(v, name, 36)
+  if (!UUID.test(s)) throw new HttpError(400, `Field "${name}" tidak valid`)
+  return s
 }
 
 export async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  if (req.method !== 'GET' && req.method !== 'DELETE') {
+    const type = req.headers['content-type'] ?? ''
+    if (!type.startsWith('application/json')) throw new HttpError(415, 'Content-Type harus application/json')
+  }
   const chunks: Buffer[] = []
   let size = 0
   for await (const c of req) {
@@ -59,9 +110,11 @@ export async function readBody(req: IncomingMessage): Promise<Record<string, unk
   }
   if (!size) return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    const v = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error()
+    return v
   } catch {
-    throw new HttpError(400, 'Body bukan JSON')
+    throw new HttpError(400, 'Body bukan objek JSON')
   }
 }
 
@@ -70,320 +123,369 @@ export function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(text),
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'"
   })
   res.end(text)
 }
 
-export function loadSecret(db: DB): string {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'secret'").get() as { value: string } | undefined
-  if (row) return row.value
-  const secret = randomBytes(32).toString('base64')
-  db.prepare("INSERT INTO meta(key, value) VALUES('secret', ?)").run(secret)
-  return secret
+export async function loadSecret(db: DB): Promise<string> {
+  const fresh = randomBytes(32).toString('base64')
+  await db.query("INSERT INTO meta(key, value) VALUES('secret', $1) ON CONFLICT (key) DO NOTHING", [fresh])
+  const r = await db.query<{ value: string }>("SELECT value FROM meta WHERE key = 'secret'")
+  return r.rows[0].value
 }
 
 export class App {
   private db: DB
   private cfg: Config
-  private loginLimit = new Limiter(10, 15 * 60 * 1000)
+  /** Per IP+username: brute force on one account. */
+  private loginUserLimit = new Limiter(10, 15 * 60 * 1000)
+  /** Per IP: spraying many usernames. */
+  private loginIpLimit = new Limiter(50, 15 * 60 * 1000)
+  /** Per IP: account creation and username probing. */
+  private signupLimit: Limiter
+  private preloginLimit = new Limiter(120, 60 * 1000)
 
   constructor(db: DB, cfg: Config) {
     this.db = db
     this.cfg = cfg
+    this.signupLimit = new Limiter(cfg.signupPerHour, 60 * 60 * 1000)
   }
 
   // ── auth ────────────────────────────────────────────────────────────────
 
-  authenticate(header: string | undefined): Authed {
-    const m = /^Bearer (.+)$/.exec(header ?? '')
+  async authenticate(header: string | undefined): Promise<Authed> {
+    const m = /^Bearer ([A-Za-z0-9_-]{20,100})$/.exec(header ?? '')
     if (!m) throw new HttpError(401, 'Belum login')
-    const dev = this.db
-      .prepare('SELECT id, user_id FROM devices WHERE token_hash = ?')
-      .get(tokenHash(m[1])) as { id: string; user_id: string } | undefined
-    if (!dev) throw new HttpError(401, 'Sesi tidak berlaku, login lagi')
-    const user = this.db.prepare('SELECT * FROM users WHERE id = ?').get(dev.user_id) as unknown as UserRow
-    this.db.prepare('UPDATE devices SET last_seen = ? WHERE id = ?').run(Date.now(), dev.id)
-    return { user, deviceId: dev.id }
+    const now = Date.now()
+    const dev = await this.db.query<{ id: string; user_id: string; last_seen: number }>(
+      'SELECT id, user_id, last_seen FROM devices WHERE token_hash = $1',
+      [tokenHash(m[1])]
+    )
+    const d = dev.rows[0]
+    if (!d) throw new HttpError(401, 'Sesi tidak berlaku, login lagi')
+    if (now - d.last_seen > this.cfg.tokenIdleMs) {
+      await this.db.query('DELETE FROM devices WHERE id = $1', [d.id])
+      throw new HttpError(401, 'Sesi kedaluwarsa karena lama tidak dipakai, login lagi')
+    }
+    const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE id = $1', [d.user_id])).rows[0]
+    // Avoid a write per request; a minute of precision is enough for idle expiry.
+    if (now - d.last_seen > 60_000) await this.db.query('UPDATE devices SET last_seen = $1 WHERE id = $2', [now, d.id])
+    return { user, deviceId: d.id }
   }
 
-  status(): { signup: string; users: number } {
-    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
+  async status(): Promise<{ signup: string; users: number }> {
+    const n = (await this.db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM users')).rows[0].n
     const signup = this.cfg.signup === 'first' ? (n === 0 ? 'open' : 'closed') : this.cfg.signup
     return { signup, users: n }
   }
 
-  prelogin(body: Record<string, unknown>): { kdf: unknown } {
+  async prelogin(body: Record<string, unknown>, ip: string): Promise<{ kdf: unknown }> {
+    if (this.preloginLimit.take(ip)) throw new HttpError(429, 'Terlalu banyak permintaan')
     const username = str(body.username, 'username', 64)
-    const row = this.db.prepare('SELECT kdf FROM users WHERE username = ?').get(username) as
-      | { kdf: string }
-      | undefined
-    return { kdf: row ? JSON.parse(row.kdf) : fakeKdf(this.cfg.secret, username) }
+    const r = await this.db.query<{ kdf: unknown }>('SELECT kdf FROM users WHERE lower(username) = lower($1)', [username])
+    return { kdf: r.rows[0]?.kdf ?? fakeKdf(this.cfg.secret, username) }
   }
 
-  private issueDevice(userId: string, deviceName: unknown): { token: string; deviceId: string } {
+  private async issueDevice(c: DB | import('./db.ts').Tx, userId: string, deviceName: unknown): Promise<{ token: string; deviceId: string }> {
     const { token, hash } = newToken()
     const deviceId = randomUUID()
     const now = Date.now()
-    this.db
-      .prepare('INSERT INTO devices(id, user_id, name, token_hash, created_at, last_seen) VALUES(?,?,?,?,?,?)')
-      .run(deviceId, userId, typeof deviceName === 'string' ? deviceName.slice(0, 80) : 'Perangkat', hash, now, now)
+    const name = typeof deviceName === 'string' && deviceName.trim() ? deviceName.trim().slice(0, 80) : 'Perangkat'
+    await c.query(
+      'INSERT INTO devices(id, user_id, name, token_hash, created_at, last_seen) VALUES($1,$2,$3,$4,$5,$6)',
+      [deviceId, userId, name, hash, now, now]
+    )
     return { token, deviceId }
   }
 
-  register(body: Record<string, unknown>): Record<string, unknown> {
+  async register(body: Record<string, unknown>, ip: string): Promise<Record<string, unknown>> {
+    if (this.signupLimit.take(ip)) throw new HttpError(429, 'Terlalu banyak pendaftaran dari alamat ini')
     const username = str(body.username, 'username', 40)
     if (!USERNAME.test(username))
       throw new HttpError(400, 'Username 3-40 karakter: huruf, angka, titik, minus, garis bawah')
-    const authKey = str(body.authKey, 'authKey', 200)
-    const kdf = json(body.kdf, 'kdf')
-    const wrappedKey = json(body.wrappedKey, 'wrappedKey')
-    const publicKey = str(body.publicKey, 'publicKey', 200)
-    const wrappedPrivateKey = json(body.wrappedPrivateKey, 'wrappedPrivateKey')
+    const authKey = b64(body.authKey, 'authKey', 32)
+    const k = kdf(body.kdf)
+    const wrappedKey = box(body.wrappedKey, 'wrappedKey', ['nonce', 'ct'])
+    const publicKey = b64(body.publicKey, 'publicKey', 32)
+    const wrappedPrivateKey = box(body.wrappedPrivateKey, 'wrappedPrivateKey', ['nonce', 'ct'])
+    const { hash, salt } = await hashAuthKey(authKey)
 
-    return tx(this.db, () => {
-      const n = (this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
+    return withTx(this.db, async (c) => {
+      // Serialize sign-ups so "first account becomes admin" cannot race.
+      await c.query('SELECT pg_advisory_xact_lock(4244)')
+      const n = (await c.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM users')).rows[0].n
       const mode = this.cfg.signup
-      if (mode === 'first' && n > 0)
-        throw new HttpError(403, 'Pendaftaran ditutup. Minta admin server membuatkan akun.')
-      if (mode === 'invite' && body.inviteCode !== this.cfg.inviteCode)
-        throw new HttpError(403, 'Kode undangan salah')
-      if (this.db.prepare('SELECT 1 FROM users WHERE username = ?').get(username))
-        throw new HttpError(409, 'Username sudah dipakai')
+      if (mode === 'first' && n > 0) throw new HttpError(403, 'Pendaftaran ditutup. Minta admin server membuatkan akun.')
+      if (mode === 'invite' && body.inviteCode !== this.cfg.inviteCode) throw new HttpError(403, 'Kode undangan salah')
+      const taken = await c.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [username])
+      if (taken.rowCount) throw new HttpError(409, 'Username sudah dipakai')
       const id = randomUUID()
-      const { hash, salt } = hashAuthKey(authKey)
-      this.db
-        .prepare(
-          `INSERT INTO users(id, username, auth_hash, auth_salt, kdf, wrapped_key, public_key, wrapped_private_key, is_admin, created_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?)`
-        )
-        .run(id, username, hash, salt, kdf, wrappedKey, publicKey, wrappedPrivateKey, n === 0 ? 1 : 0, Date.now())
-      const { token, deviceId } = this.issueDevice(id, body.deviceName)
+      await c.query(
+        `INSERT INTO users(id, username, auth_hash, auth_salt, kdf, wrapped_key, public_key, wrapped_private_key, is_admin, created_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [id, username, hash, salt, k, wrappedKey, publicKey, wrappedPrivateKey, n === 0, Date.now()]
+      )
+      const { token, deviceId } = await this.issueDevice(c, id, body.deviceName)
       return { userId: id, token, deviceId, isAdmin: n === 0 }
     })
   }
 
-  login(body: Record<string, unknown>, ip: string): Record<string, unknown> {
+  async login(body: Record<string, unknown>, ip: string): Promise<Record<string, unknown>> {
     const username = str(body.username, 'username', 64)
-    const authKey = str(body.authKey, 'authKey', 200)
-    const key = `${ip}|${username.toLowerCase()}`
-    if (this.loginLimit.blocked(key)) throw new HttpError(429, 'Terlalu banyak percobaan. Coba lagi 15 menit lagi.')
-    const user = this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined
-    if (!user || !verifyAuthKey(authKey, user.auth_hash, user.auth_salt)) {
-      this.loginLimit.fail(key)
+    const authKey = b64(body.authKey, 'authKey', 32)
+    const userKey = `${ip}|${username.toLowerCase()}`
+    if (this.loginUserLimit.blocked(userKey) || this.loginIpLimit.blocked(ip))
+      throw new HttpError(429, 'Terlalu banyak percobaan. Coba lagi 15 menit lagi.')
+    const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE lower(username) = lower($1)', [username])).rows[0]
+    const ok = user ? await verifyAuthKey(authKey, user.auth_hash, user.auth_salt) : await verifyAgainstDummy(authKey)
+    if (!ok) {
+      this.loginUserLimit.hit(userKey)
+      this.loginIpLimit.hit(ip)
       throw new HttpError(401, 'Username atau password salah')
     }
-    this.loginLimit.reset(key)
-    const { token, deviceId } = this.issueDevice(user.id, body.deviceName)
-    return {
-      token,
-      deviceId,
-      ...this.profile(user)
-    }
+    this.loginUserLimit.reset(userKey)
+    const { token, deviceId } = await this.issueDevice(this.db, user.id, body.deviceName)
+    return { token, deviceId, ...(await this.profile(user)) }
   }
 
-  private profile(user: UserRow): Record<string, unknown> {
+  private async profile(user: UserRow): Promise<Record<string, unknown>> {
     return {
       userId: user.id,
       username: user.username,
-      isAdmin: !!user.is_admin,
-      kdf: JSON.parse(user.kdf),
-      wrappedKey: JSON.parse(user.wrapped_key),
+      isAdmin: user.is_admin,
+      kdf: user.kdf,
+      wrappedKey: user.wrapped_key,
       publicKey: user.public_key,
-      wrappedPrivateKey: JSON.parse(user.wrapped_private_key),
-      teams: this.teamsOf(user.id)
+      wrappedPrivateKey: user.wrapped_private_key,
+      teams: await this.teamsOf(user.id)
     }
   }
 
-  me(a: Authed): Record<string, unknown> {
+  me(a: Authed): Promise<Record<string, unknown>> {
     return this.profile(a.user)
   }
 
-  logout(a: Authed): void {
-    this.db.prepare('DELETE FROM devices WHERE id = ?').run(a.deviceId)
+  async logout(a: Authed): Promise<void> {
+    await this.db.query('DELETE FROM devices WHERE id = $1', [a.deviceId])
   }
 
-  changePassword(a: Authed, body: Record<string, unknown>): void {
-    const oldKey = str(body.authKey, 'authKey', 200)
-    if (!verifyAuthKey(oldKey, a.user.auth_hash, a.user.auth_salt)) throw new HttpError(403, 'Password lama salah')
-    const { hash, salt } = hashAuthKey(str(body.newAuthKey, 'newAuthKey', 200))
-    tx(this.db, () => {
-      this.db
-        .prepare('UPDATE users SET auth_hash = ?, auth_salt = ?, kdf = ?, wrapped_key = ?, wrapped_private_key = ? WHERE id = ?')
-        .run(hash, salt, json(body.kdf, 'kdf'), json(body.wrappedKey, 'wrappedKey'), json(body.wrappedPrivateKey, 'wrappedPrivateKey'), a.user.id)
+  private async reauth(a: Authed, authKey: unknown): Promise<void> {
+    const key = b64(authKey, 'authKey', 32)
+    if (this.loginUserLimit.blocked(`reauth|${a.user.id}`)) throw new HttpError(429, 'Terlalu banyak percobaan')
+    if (!(await verifyAuthKey(key, a.user.auth_hash, a.user.auth_salt))) {
+      this.loginUserLimit.hit(`reauth|${a.user.id}`)
+      throw new HttpError(403, 'Password akun salah')
+    }
+  }
+
+  async changePassword(a: Authed, body: Record<string, unknown>): Promise<void> {
+    await this.reauth(a, body.authKey)
+    const { hash, salt } = await hashAuthKey(b64(body.newAuthKey, 'newAuthKey', 32))
+    const k = kdf(body.kdf)
+    const wrappedKey = box(body.wrappedKey, 'wrappedKey', ['nonce', 'ct'])
+    const wrappedPrivateKey = box(body.wrappedPrivateKey, 'wrappedPrivateKey', ['nonce', 'ct'])
+    await withTx(this.db, async (c) => {
+      await c.query(
+        'UPDATE users SET auth_hash = $1, auth_salt = $2, kdf = $3, wrapped_key = $4, wrapped_private_key = $5 WHERE id = $6',
+        [hash, salt, k, wrappedKey, wrappedPrivateKey, a.user.id]
+      )
       // Every other device must log in again with the new password.
-      this.db.prepare('DELETE FROM devices WHERE user_id = ? AND id != ?').run(a.user.id, a.deviceId)
+      await c.query('DELETE FROM devices WHERE user_id = $1 AND id <> $2', [a.user.id, a.deviceId])
     })
   }
 
-  devices(a: Authed): unknown[] {
-    return (
-      this.db
-        .prepare('SELECT id, name, created_at AS createdAt, last_seen AS lastSeen FROM devices WHERE user_id = ? ORDER BY last_seen DESC')
-        .all(a.user.id) as { id: string }[]
-    ).map((d) => ({ ...d, current: d.id === a.deviceId }))
+  /** Delete the account and everything it owns (personal vault, owned teams). */
+  async deleteAccount(a: Authed, body: Record<string, unknown>): Promise<void> {
+    await this.reauth(a, body.authKey)
+    await withTx(this.db, async (c) => {
+      const owned = await c.query<{ id: string }>('SELECT id FROM teams WHERE owner_id = $1', [a.user.id])
+      for (const t of owned.rows) await c.query('DELETE FROM records WHERE scope = $1', [`t:${t.id}`])
+      await c.query('DELETE FROM records WHERE scope = $1', [`u:${a.user.id}`])
+      await c.query('DELETE FROM users WHERE id = $1', [a.user.id])
+    })
   }
 
-  revokeDevice(a: Authed, id: string): void {
-    this.db.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').run(id, a.user.id)
+  async devices(a: Authed): Promise<unknown[]> {
+    const r = await this.db.query<{ id: string }>(
+      'SELECT id, name, created_at AS "createdAt", last_seen AS "lastSeen" FROM devices WHERE user_id = $1 ORDER BY last_seen DESC',
+      [a.user.id]
+    )
+    return r.rows.map((d) => ({ ...d, current: d.id === a.deviceId }))
   }
 
-  // ── admin: create accounts when public signup is closed ─────────────────
-
-  createInvite(a: Authed): { inviteCode: string } {
-    if (!a.user.is_admin) throw new HttpError(403, 'Hanya admin')
-    if (this.cfg.signup !== 'invite')
-      throw new HttpError(400, 'Server tidak dalam mode undangan (TERMOS_SIGNUP=invite)')
-    return { inviteCode: this.cfg.inviteCode ?? '' }
+  async revokeDevice(a: Authed, id: string): Promise<void> {
+    await this.db.query('DELETE FROM devices WHERE id = $1 AND user_id = $2', [uuid(id, 'id'), a.user.id])
   }
 
   // ── sync ────────────────────────────────────────────────────────────────
 
-  private scopesOf(userId: string): string[] {
-    const teams = this.db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').all(userId) as {
-      team_id: string
-    }[]
-    return [`u:${userId}`, ...teams.map((t) => `t:${t.team_id}`)]
+  private async scopesOf(userId: string): Promise<string[]> {
+    const teams = await this.db.query<{ team_id: string }>('SELECT team_id FROM team_members WHERE user_id = $1', [userId])
+    return [`u:${userId}`, ...teams.rows.map((t) => `t:${t.team_id}`)]
   }
 
   /** `only` limits the pull to one scope, used to backfill a team the user just joined. */
-  pull(a: Authed, since: number, only?: string): { records: unknown[]; cursor: number } {
-    let scopes = this.scopesOf(a.user.id)
+  async pull(a: Authed, since: number, only?: string): Promise<{ records: unknown[]; cursor: number }> {
+    let scopes = await this.scopesOf(a.user.id)
     if (only) {
-      if (!scopes.includes(only)) throw new HttpError(403, `Tidak punya akses ke ${only}`)
+      if (!scopes.includes(only)) throw new HttpError(403, 'Tidak punya akses ke vault ini')
       scopes = [only]
     }
-    const placeholders = scopes.map(() => '?').join(',')
-    const rows = this.db
-      .prepare(
-        `SELECT scope, id, updated_at AS updatedAt, deleted, blob, seq FROM records
-         WHERE scope IN (${placeholders}) AND seq > ? ORDER BY seq LIMIT 5000`
-      )
-      .all(...scopes, since) as { seq: number; deleted: number }[]
-    const cursorRow = this.db.prepare("SELECT value FROM meta WHERE key = 'seq'").get() as { value: string } | undefined
-    const cursor = rows.length === 5000 ? rows[rows.length - 1].seq : Number(cursorRow?.value ?? 0)
-    return {
-      records: rows.map((r) => ({ ...r, deleted: !!r.deleted })),
-      cursor
-    }
+    const r = await this.db.query<{ seq: number }>(
+      `SELECT scope, id, updated_at AS "updatedAt", deleted, blob, seq FROM records
+       WHERE scope = ANY($1) AND seq > $2 ORDER BY seq LIMIT 5000`,
+      [scopes, Math.max(0, Math.floor(since))]
+    )
+    // Writers hold RECORD_WRITE_LOCK until commit, so rows appear in seq order and
+    // "the highest seq we returned" is a cursor that never skips a later commit.
+    const cursor = r.rows.length ? r.rows[r.rows.length - 1].seq : since
+    return { records: r.rows, cursor }
   }
 
-  push(a: Authed, body: Record<string, unknown>): { accepted: number; stale: string[]; cursor: number } {
+  async push(a: Authed, body: Record<string, unknown>): Promise<{ accepted: number; stale: string[] }> {
     const list = body.records
     if (!Array.isArray(list) || list.length > 5000) throw new HttpError(400, 'records harus array (maks 5000)')
-    const allowed = new Set(this.scopesOf(a.user.id))
+    const allowed = new Set(await this.scopesOf(a.user.id))
+    const rows = (list as Record<string, unknown>[]).map((r) => {
+      const scope = str(r.scope, 'scope', 80)
+      if (!allowed.has(scope)) throw new HttpError(403, 'Tidak punya akses ke vault ini')
+      const id = str(r.id, 'id', 80)
+      const updatedAt = Number(r.updatedAt)
+      if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) throw new HttpError(400, 'updatedAt tidak valid')
+      const blob = str(r.blob, 'blob', 2 * 1024 * 1024)
+      return { scope, id, updatedAt, deleted: !!r.deleted, blob }
+    })
     const stale: string[] = []
     let accepted = 0
-    tx(this.db, () => {
-      const get = this.db.prepare('SELECT updated_at FROM records WHERE scope = ? AND id = ?')
-      const put = this.db.prepare(
-        `INSERT INTO records(scope, id, updated_at, deleted, blob, seq) VALUES(?,?,?,?,?,?)
-         ON CONFLICT(scope, id) DO UPDATE SET updated_at = excluded.updated_at, deleted = excluded.deleted,
-         blob = excluded.blob, seq = excluded.seq`
-      )
-      for (const r of list as Record<string, unknown>[]) {
-        const scope = str(r.scope, 'scope', 80)
-        if (!allowed.has(scope)) throw new HttpError(403, `Tidak punya akses ke ${scope}`)
-        const id = str(r.id, 'id', 80)
-        const updatedAt = Number(r.updatedAt)
-        if (!Number.isFinite(updatedAt)) throw new HttpError(400, 'updatedAt tidak valid')
-        const blob = str(r.blob, 'blob', 4 * 1024 * 1024)
-        const cur = get.get(scope, id) as { updated_at: number } | undefined
-        // Last writer wins; an older write is reported back so the client re-pulls.
-        if (cur && cur.updated_at >= updatedAt) {
-          stale.push(id)
-          continue
-        }
-        put.run(scope, id, updatedAt, r.deleted ? 1 : 0, blob, nextSeq(this.db))
-        accepted++
+    await withTx(this.db, async (c) => {
+      await c.query('SELECT pg_advisory_xact_lock($1)', [RECORD_WRITE_LOCK])
+      for (const r of rows) {
+        // Last writer wins, atomically: the update only happens when the incoming copy is newer.
+        const res = await c.query(
+          `INSERT INTO records(scope, id, updated_at, deleted, blob, size, seq)
+           VALUES($1, $2, $3, $4, $5, $6, nextval('record_seq'))
+           ON CONFLICT (scope, id) DO UPDATE SET updated_at = excluded.updated_at, deleted = excluded.deleted,
+             blob = excluded.blob, size = excluded.size, seq = excluded.seq
+           WHERE records.updated_at < excluded.updated_at
+           RETURNING id`,
+          [r.scope, r.id, r.updatedAt, r.deleted, r.blob, r.blob.length]
+        )
+        if (res.rowCount) accepted++
+        else stale.push(r.id)
+      }
+      // Quota is checked on the result; going over rolls the whole batch back.
+      for (const scope of new Set(rows.map((r) => r.scope))) {
+        const usage = (
+          await c.query<{ n: number; bytes: number }>(
+            'SELECT COUNT(*)::int AS n, COALESCE(SUM(size), 0)::bigint AS bytes FROM records WHERE scope = $1',
+            [scope]
+          )
+        ).rows[0]
+        if (usage.n > this.cfg.maxRecords || usage.bytes > this.cfg.maxBytes)
+          throw new HttpError(507, 'Kuota penyimpanan vault ini di server sudah penuh')
       }
     })
-    const cursorRow = this.db.prepare("SELECT value FROM meta WHERE key = 'seq'").get() as { value: string } | undefined
-    return { accepted, stale, cursor: Number(cursorRow?.value ?? 0) }
+    return { accepted, stale }
   }
 
   // ── teams ───────────────────────────────────────────────────────────────
 
-  teamsOf(userId: string): unknown[] {
-    return this.db
-      .prepare(
-        `SELECT t.id, t.name, t.owner_id AS ownerId, m.role, m.wrapped_team_key AS wrappedTeamKey
-         FROM team_members m JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY t.name`
-      )
-      .all(userId)
-      .map((r) => {
-        const row = r as Record<string, unknown>
-        return { ...row, wrappedTeamKey: JSON.parse(row.wrappedTeamKey as string) }
-      })
+  async teamsOf(userId: string): Promise<unknown[]> {
+    const r = await this.db.query(
+      `SELECT t.id, t.name, t.owner_id AS "ownerId", m.role, m.wrapped_team_key AS "wrappedTeamKey"
+       FROM team_members m JOIN teams t ON t.id = m.team_id WHERE m.user_id = $1 ORDER BY t.name`,
+      [userId]
+    )
+    return r.rows
   }
 
-  createTeam(a: Authed, body: Record<string, unknown>): { id: string } {
-    const name = str(body.name, 'name', 80)
-    const wrapped = json(body.wrappedTeamKey, 'wrappedTeamKey')
+  async createTeam(a: Authed, body: Record<string, unknown>): Promise<{ id: string }> {
+    const name = str(body.name, 'name', 80).trim()
+    const wrapped = box(body.wrappedTeamKey, 'wrappedTeamKey', ['epk', 'nonce', 'ct'])
+    const count = await this.db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM teams WHERE owner_id = $1', [a.user.id])
+    if (count.rows[0].n >= 50) throw new HttpError(400, 'Maksimal 50 tim per akun')
     const id = randomUUID()
-    tx(this.db, () => {
-      this.db.prepare('INSERT INTO teams(id, name, owner_id, created_at) VALUES(?,?,?,?)').run(id, name, a.user.id, Date.now())
-      this.db
-        .prepare('INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES(?,?,?,?,?)')
-        .run(id, a.user.id, 'owner', wrapped, Date.now())
+    await withTx(this.db, async (c) => {
+      await c.query('INSERT INTO teams(id, name, owner_id, created_at) VALUES($1,$2,$3,$4)', [id, name, a.user.id, Date.now()])
+      await c.query(
+        'INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES($1,$2,$3,$4,$5)',
+        [id, a.user.id, 'owner', wrapped, Date.now()]
+      )
     })
     return { id }
   }
 
-  private requireOwner(a: Authed, teamId: string): void {
-    const m = this.db
-      .prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ?')
-      .get(teamId, a.user.id) as { role: string } | undefined
-    if (!m) throw new HttpError(404, 'Tim tidak ditemukan')
-    if (m.role !== 'owner') throw new HttpError(403, 'Hanya pemilik tim')
+  private async roleIn(a: Authed, teamId: string): Promise<string | undefined> {
+    const r = await this.db.query<{ role: string }>('SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2', [
+      teamId,
+      a.user.id
+    ])
+    return r.rows[0]?.role
   }
 
-  members(a: Authed, teamId: string): unknown[] {
-    const me = this.db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?').get(teamId, a.user.id)
-    if (!me) throw new HttpError(404, 'Tim tidak ditemukan')
-    return this.db
-      .prepare(
-        `SELECT u.id AS userId, u.username, m.role, m.added_at AS addedAt FROM team_members m
-         JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY u.username`
-      )
-      .all(teamId)
+  private async requireOwner(a: Authed, teamId: string): Promise<void> {
+    const role = await this.roleIn(a, uuid(teamId, 'teamId'))
+    if (!role) throw new HttpError(404, 'Tim tidak ditemukan')
+    if (role !== 'owner') throw new HttpError(403, 'Hanya pemilik tim')
   }
 
-  publicKeyOf(username: string): { userId: string; username: string; publicKey: string } {
-    const u = this.db.prepare('SELECT id, username, public_key FROM users WHERE username = ?').get(username) as
-      | { id: string; username: string; public_key: string }
-      | undefined
-    if (!u) throw new HttpError(404, `User "${username}" tidak ada di server ini`)
+  async members(a: Authed, teamId: string): Promise<unknown[]> {
+    if (!(await this.roleIn(a, uuid(teamId, 'teamId')))) throw new HttpError(404, 'Tim tidak ditemukan')
+    const r = await this.db.query(
+      `SELECT u.id AS "userId", u.username, u.public_key AS "publicKey", m.role, m.added_at AS "addedAt"
+       FROM team_members m JOIN users u ON u.id = m.user_id WHERE m.team_id = $1 ORDER BY u.username`,
+      [teamId]
+    )
+    return r.rows
+  }
+
+  async publicKeyOf(username: string): Promise<{ userId: string; username: string; publicKey: string }> {
+    const r = await this.db.query<{ id: string; username: string; public_key: string }>(
+      'SELECT id, username, public_key FROM users WHERE lower(username) = lower($1)',
+      [username]
+    )
+    const u = r.rows[0]
+    if (!u) throw new HttpError(404, 'User tidak ada di server ini')
     return { userId: u.id, username: u.username, publicKey: u.public_key }
   }
 
-  addMember(a: Authed, teamId: string, body: Record<string, unknown>): void {
-    this.requireOwner(a, teamId)
-    const userId = str(body.userId, 'userId', 80)
-    const wrapped = json(body.wrappedTeamKey, 'wrappedTeamKey')
-    if (!this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId)) throw new HttpError(404, 'User tidak ada')
-    this.db
-      .prepare(
-        `INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES(?,?,?,?,?)
-         ON CONFLICT(team_id, user_id) DO UPDATE SET wrapped_team_key = excluded.wrapped_team_key`
-      )
-      .run(teamId, userId, 'member', wrapped, Date.now())
+  async addMember(a: Authed, teamId: string, body: Record<string, unknown>): Promise<void> {
+    await this.requireOwner(a, teamId)
+    const userId = uuid(body.userId, 'userId')
+    const wrapped = box(body.wrappedTeamKey, 'wrappedTeamKey', ['epk', 'nonce', 'ct'])
+    const exists = await this.db.query('SELECT 1 FROM users WHERE id = $1', [userId])
+    if (!exists.rowCount) throw new HttpError(404, 'User tidak ada')
+    const count = await this.db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1', [teamId])
+    if (count.rows[0].n >= 200) throw new HttpError(400, 'Maksimal 200 anggota per tim')
+    await this.db.query(
+      `INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES($1,$2,'member',$3,$4)
+       ON CONFLICT (team_id, user_id) DO UPDATE SET wrapped_team_key = excluded.wrapped_team_key`,
+      [teamId, userId, wrapped, Date.now()]
+    )
   }
 
-  removeMember(a: Authed, teamId: string, userId: string): void {
-    if (userId !== a.user.id) this.requireOwner(a, teamId)
-    const target = this.db
-      .prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ?')
-      .get(teamId, userId) as { role: string } | undefined
-    if (target?.role === 'owner') throw new HttpError(400, 'Pemilik tidak bisa dikeluarkan; hapus timnya')
-    this.db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId)
+  async removeMember(a: Authed, teamId: string, userId: string): Promise<void> {
+    uuid(teamId, 'teamId')
+    uuid(userId, 'userId')
+    if (userId !== a.user.id) await this.requireOwner(a, teamId)
+    const target = await this.db.query<{ role: string }>(
+      'SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2',
+      [teamId, userId]
+    )
+    if (target.rows[0]?.role === 'owner') throw new HttpError(400, 'Pemilik tidak bisa dikeluarkan; hapus timnya')
+    await this.db.query('DELETE FROM team_members WHERE team_id = $1 AND user_id = $2', [teamId, userId])
   }
 
-  deleteTeam(a: Authed, teamId: string): void {
-    this.requireOwner(a, teamId)
-    tx(this.db, () => {
-      this.db.prepare('DELETE FROM records WHERE scope = ?').run(`t:${teamId}`)
-      this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId)
+  async deleteTeam(a: Authed, teamId: string): Promise<void> {
+    await this.requireOwner(a, teamId)
+    await withTx(this.db, async (c) => {
+      await c.query('DELETE FROM records WHERE scope = $1', [`t:${teamId}`])
+      await c.query('DELETE FROM teams WHERE id = $1', [teamId])
     })
   }
 }
