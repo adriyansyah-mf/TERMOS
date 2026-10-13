@@ -1,22 +1,16 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { PreloadBridge, TermosEvents } from '../shared/api'
 
-// Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
+const bridge: PreloadBridge = {
+  invoke: (method, ...args) => ipcRenderer.invoke(`termos:${method}`, ...args),
+  write: (id, data) => ipcRenderer.send('termos:write', id, data),
+  resize: (id, cols, rows) => ipcRenderer.send('termos:resize', id, cols, rows),
+  on: <K extends keyof TermosEvents>(channel: K, fn: (payload: TermosEvents[K]) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, payload: TermosEvents[K]): void => fn(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  },
+  pathForFile: (file) => webUtils.getPathForFile(file)
 }
+
+contextBridge.exposeInMainWorld('termos', bridge)

@@ -293,11 +293,11 @@ function connectHop(
           .then((ans) =>
             ans?.[0]
               ? next({ type: 'password', username: r.username, password: ans[0] })
-              : next(false)
+              : next(false as never)
           )
         return
       }
-      return next(false)
+      return next(false as never)
     }
   }
 

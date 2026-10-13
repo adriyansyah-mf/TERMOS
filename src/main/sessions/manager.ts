@@ -5,6 +5,8 @@ import { newId } from '../../shared/merge'
 import type { HistoryEntry, SessionEvent } from '../../shared/types'
 import { dataDir, vault } from '../vault'
 
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
 /** A running terminal backend (ssh shell, pty, telnet socket, ...). */
 export interface Backend {
   write(data: string): void
@@ -19,7 +21,7 @@ export interface SessionContext {
   emitData(data: string): void
   setStatus(status: 'connecting' | 'connected' | 'closed' | 'error', message?: string): void
   ask<T>(
-    event: Omit<Extract<SessionEvent, { requestId: string }>, 'sessionId' | 'requestId'>
+    event: DistributiveOmit<Extract<SessionEvent, { requestId: string }>, 'sessionId' | 'requestId'>
   ): Promise<T>
 }
 
