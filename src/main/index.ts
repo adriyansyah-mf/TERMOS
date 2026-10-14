@@ -169,9 +169,14 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc(win)
 
     // If the renderer never reports ready (crash, corrupted bundle), do not
-    // leave an immortal splash on screen.
-    setTimeout(() => splash.close(), 10_000).unref()
+    // leave an immortal splash on screen. The guard matters: in the normal
+    // flow the splash is already destroyed when the timer fires, and calling
+    // close() on a destroyed window throws "Object has been destroyed".
+    const splashTimer = setTimeout(() => {
+      if (!splash.isDestroyed()) splash.close()
+    }, 10_000)
     splash.on('closed', () => {
+      clearTimeout(splashTimer)
       if (!win.isDestroyed() && !win.isVisible()) win.show()
     })
 
