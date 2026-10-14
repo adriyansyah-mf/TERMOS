@@ -21,6 +21,32 @@ import {
   type KdfParams,
   type SealedBox
 } from './crypto'
+import { fmt, tr } from './i18n'
+
+const S = {
+  id: {
+    corruptFile: 'File vault rusak atau kosong: %s',
+    notVaultFile: 'Bukan file vault Termos yang valid: %s',
+    existsAlready: 'Vault sudah ada',
+    wrongPassword: 'Master password salah',
+    keychainUnavailable: 'Keychain sistem tidak tersedia; buka dengan master password',
+    keychainInsecure:
+      'Keychain sistem tidak tersedia atau tidak aman (tidak ada gnome-keyring/kwallet). Quick unlock tidak diaktifkan.',
+    locked: 'Vault terkunci',
+    wrongOldPassword: 'Password lama salah'
+  },
+  en: {
+    corruptFile: 'Vault file is corrupt or empty: %s',
+    notVaultFile: 'Not a valid Termos vault file: %s',
+    existsAlready: 'Vault already exists',
+    wrongPassword: 'Wrong master password',
+    keychainUnavailable: 'System keychain unavailable; unlock with the master password',
+    keychainInsecure:
+      'System keychain unavailable or insecure (no gnome-keyring/kwallet). Quick unlock not enabled.',
+    locked: 'Vault is locked',
+    wrongOldPassword: 'Old password is wrong'
+  }
+}
 
 interface VaultFile extends SealedBox {
   format: 'termos-vault'
@@ -63,6 +89,21 @@ class Vault extends EventEmitter {
     return existsSync(this.file)
   }
 
+  /** Read and validate vault.json; a corrupt file must not surface as a raw SyntaxError. */
+  private readFile(): VaultFile {
+    let raw: VaultFile
+    try {
+      // Windows editors (old Notepad, PowerShell redirects) can prepend a UTF-8 BOM,
+      // which alone would make JSON.parse throw "Unexpected token".
+      raw = JSON.parse(readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '')) as VaultFile
+    } catch {
+      throw new Error(fmt(tr(S).corruptFile, this.file))
+    }
+    if (raw?.format !== 'termos-vault' || !raw.kdf)
+      throw new Error(fmt(tr(S).notVaultFile, this.file))
+    return raw
+  }
+
   isUnlocked(): boolean {
     return this.data !== null
   }
@@ -72,7 +113,7 @@ class Vault extends EventEmitter {
   }
 
   async create(password: string): Promise<void> {
-    if (this.exists()) throw new Error('Vault sudah ada')
+    if (this.exists()) throw new Error(tr(S).existsAlready)
     this.kdf = newKdfParams()
     this.key = await deriveKey(password, this.kdf)
     this.data = emptyVault()
@@ -80,13 +121,13 @@ class Vault extends EventEmitter {
   }
 
   async unlock(password: string): Promise<void> {
-    const raw = JSON.parse(readFileSync(this.file, 'utf8')) as VaultFile
+    const raw = this.readFile()
     const key = await deriveKey(password, raw.kdf)
     let text: string
     try {
       text = open(key, raw)
     } catch {
-      throw new Error('Master password salah')
+      throw new Error(tr(S).wrongPassword)
     }
     this.kdf = raw.kdf
     this.key = key
@@ -95,9 +136,8 @@ class Vault extends EventEmitter {
 
   /** Unlock with the key cached in the OS keychain (libsecret/Keychain/DPAPI). */
   quickUnlock(): void {
-    if (!osKeychainUsable())
-      throw new Error('Keychain sistem tidak tersedia; buka dengan master password')
-    const raw = JSON.parse(readFileSync(this.file, 'utf8')) as VaultFile
+    if (!osKeychainUsable()) throw new Error(tr(S).keychainUnavailable)
+    const raw = this.readFile()
     const key = unb64(safeStorage.decryptString(readFileSync(this.quickFile)))
     this.kdf = raw.kdf
     this.key = key
@@ -109,18 +149,15 @@ class Vault extends EventEmitter {
       rmSync(this.quickFile, { force: true })
       return
     }
-    if (!this.key) throw new Error('Vault terkunci')
-    if (!osKeychainUsable())
-      throw new Error(
-        'Keychain sistem tidak tersedia atau tidak aman (tidak ada gnome-keyring/kwallet). Quick unlock tidak diaktifkan.'
-      )
+    if (!this.key) throw new Error(tr(S).locked)
+    if (!osKeychainUsable()) throw new Error(tr(S).keychainInsecure)
     writeFileSync(this.quickFile, safeStorage.encryptString(b64(this.key)), { mode: 0o600 })
   }
 
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
-    if (!this.kdf || !this.data) throw new Error('Vault terkunci')
+    if (!this.kdf || !this.data) throw new Error(tr(S).locked)
     const check = await deriveKey(oldPassword, this.kdf)
-    if (b64(check) !== b64(this.key!)) throw new Error('Password lama salah')
+    if (b64(check) !== b64(this.key!)) throw new Error(tr(S).wrongOldPassword)
     this.kdf = newKdfParams()
     this.key = await deriveKey(newPassword, this.kdf)
     this.flush()
@@ -135,7 +172,7 @@ class Vault extends EventEmitter {
   }
 
   get(): VaultData {
-    if (!this.data) throw new Error('Vault terkunci')
+    if (!this.data) throw new Error(tr(S).locked)
     return this.data
   }
 
@@ -223,12 +260,12 @@ class Vault extends EventEmitter {
 
   /** Encrypt arbitrary payloads with the vault key (used by sync). */
   sealWithVaultKey(text: string): SealedBox & { kdf: KdfParams } {
-    if (!this.key || !this.kdf) throw new Error('Vault terkunci')
+    if (!this.key || !this.kdf) throw new Error(tr(S).locked)
     return { ...seal(this.key, text), kdf: this.kdf }
   }
 
   openWithVaultKey(box: SealedBox): string {
-    if (!this.key) throw new Error('Vault terkunci')
+    if (!this.key) throw new Error(tr(S).locked)
     return open(this.key, box)
   }
 

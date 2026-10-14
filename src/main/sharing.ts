@@ -2,9 +2,39 @@ import { EventEmitter } from 'node:events'
 import { randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { b64, unb64 } from './crypto'
+import { fmt, tr } from './i18n'
 import { FrameCodec, HOST } from './shareCodec'
 import { sessions, type Backend, type SessionContext } from './sessions/manager'
 import { vault } from './vault'
+
+const S = {
+  id: {
+    loginFirst: 'Masuk ke server sync dulu (menu Sync & tim) untuk berbagi sesi',
+    serverNoAnswer: 'Server tidak menjawab',
+    relayConnectFailed: 'Gagal terhubung ke relay: %s',
+    relayRefused: 'Relay menolak (HTTP %s)',
+    invalidLink: 'Link sesi bersama tidak valid',
+    brokenKey: 'Kunci di link sesi bersama rusak',
+    wrongServer: 'Link ini dari server %s, sedangkan kamu masuk ke %s',
+    watchingNote:
+      '\x1b[90m[menonton sesi bersama; ketikan hanya diteruskan bila host mengizinkan]\x1b[0m\r\n',
+    hostEnded: '\r\n\x1b[90m[host mengakhiri sesi bersama]\x1b[0m\r\n',
+    disconnected: 'terputus'
+  },
+  en: {
+    loginFirst: 'Sign in to the sync server first (Sync & team menu) to share a session',
+    serverNoAnswer: 'Server did not respond',
+    relayConnectFailed: 'Failed to connect to relay: %s',
+    relayRefused: 'Relay refused (HTTP %s)',
+    invalidLink: 'Invalid shared session link',
+    brokenKey: 'Key in the shared session link is corrupt',
+    wrongServer: 'This link is from server %s, but you are signed in to %s',
+    watchingNote:
+      '\x1b[90m[watching a shared session; keystrokes are only forwarded if the host allows]\x1b[0m\r\n',
+    hostEnded: '\r\n\x1b[90m[host ended the shared session]\x1b[0m\r\n',
+    disconnected: 'disconnected'
+  }
+}
 
 /**
  * Live terminal sharing through the self-hosted server's relay.
@@ -30,8 +60,7 @@ const BACKLOG = 64 * 1024
 
 function account(): { serverUrl: string; token: string } {
   const s = vault.get().settings.sync
-  if (!s.token || !s.serverUrl)
-    throw new Error('Masuk ke server sync dulu (menu Sync & tim) untuk berbagi sesi')
+  if (!s.token || !s.serverUrl) throw new Error(tr(S).loginFirst)
   return { serverUrl: s.serverUrl, token: s.token }
 }
 
@@ -75,14 +104,14 @@ class Sharing extends EventEmitter {
       maxPayload: 1024 * 1024
     })
     const shareId = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Server tidak menjawab')), 15000)
+      const timer = setTimeout(() => reject(new Error(tr(S).serverNoAnswer)), 15000)
       ws.once('error', (err) => {
         clearTimeout(timer)
-        reject(new Error(`Gagal terhubung ke relay: ${err.message}`))
+        reject(new Error(fmt(tr(S).relayConnectFailed, err.message)))
       })
       ws.once('unexpected-response', (_req, res) => {
         clearTimeout(timer)
-        reject(new Error(`Relay menolak (HTTP ${res.statusCode})`))
+        reject(new Error(fmt(tr(S).relayRefused, String(res.statusCode))))
       })
       ws.on('message', (raw) => {
         const msg = parse(raw)
@@ -181,9 +210,9 @@ export function parseInvite(invite: string): {
   key: Uint8Array
 } {
   const m = /^(https?:\/\/[^\s#]+?)\/share\/([\w-]{16,40})#([\w-]{40,48})$/.exec(invite.trim())
-  if (!m) throw new Error('Link sesi bersama tidak valid')
+  if (!m) throw new Error(tr(S).invalidLink)
   const key = unb64(m[3].replace(/-/g, '+').replace(/_/g, '/'))
-  if (key.length !== 32) throw new Error('Kunci di link sesi bersama rusak')
+  if (key.length !== 32) throw new Error(tr(S).brokenKey)
   return { serverUrl: m[1], shareId: m[2], key }
 }
 
@@ -193,7 +222,7 @@ export function joinShare(ctx: SessionContext, invite: string): Promise<Backend>
   const acct = account()
   // Only ever send our sync token to the server we are logged in to.
   if (acct.serverUrl !== serverUrl)
-    throw new Error(`Link ini dari server ${serverUrl}, sedangkan kamu masuk ke ${acct.serverUrl}`)
+    throw new Error(fmt(tr(S).wrongServer, serverUrl, acct.serverUrl))
   const codec = new FrameCodec(key, shareId)
   const me = randomBytes(9).toString('base64url')
   const ws = new WebSocket(wsUrl(serverUrl, `/api/share/join/${shareId}`), {
@@ -202,13 +231,11 @@ export function joinShare(ctx: SessionContext, invite: string): Promise<Backend>
   })
   return new Promise((resolve, reject) => {
     ws.once('unexpected-response', (_req, res) =>
-      reject(new Error(`Relay menolak (HTTP ${res.statusCode})`))
+      reject(new Error(fmt(tr(S).relayRefused, String(res.statusCode))))
     )
-    ws.on('error', (err) => reject(new Error(`Gagal terhubung ke relay: ${err.message}`)))
+    ws.on('error', (err) => reject(new Error(fmt(tr(S).relayConnectFailed, err.message))))
     ws.once('open', () => {
-      ctx.emitData(
-        '\x1b[90m[menonton sesi bersama; ketikan hanya diteruskan bila host mengizinkan]\x1b[0m\r\n'
-      )
+      ctx.emitData(tr(S).watchingNote)
       resolve({
         write: (d) => {
           if (ws.readyState === ws.OPEN)
@@ -224,14 +251,15 @@ export function joinShare(ctx: SessionContext, invite: string): Promise<Backend>
         const text = codec.decode('h2v', msg.data)
         if (text !== null) ctx.emitData(text)
       } else if (msg?.t === 'ended') {
-        ctx.emitData('\r\n\x1b[90m[host mengakhiri sesi bersama]\x1b[0m\r\n')
+        ctx.emitData(tr(S).hostEnded)
       }
     })
     ws.on('close', (code, reason) => {
       if (code >= 4000)
-        ctx.emitData(`\r\n\x1b[90m[${reason.toString().slice(0, 100) || 'terputus'}]\x1b[0m\r\n`)
+        ctx.emitData(
+          `\r\n\x1b[90m[${reason.toString().slice(0, 100) || tr(S).disconnected}]\x1b[0m\r\n`
+        )
       ctx.setStatus('closed')
     })
   })
 }
-

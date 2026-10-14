@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import SSHConfig from 'ssh-config'
 import { newId } from '../shared/merge'
 import type { Group, Host, SshKey } from '../shared/types'
+import { fmt, tr } from './i18n'
 import { expandHome, importKeyFile } from './keys'
 import { vault } from './vault'
 
@@ -14,21 +15,34 @@ export interface ImportResult {
   skipped: string[]
 }
 
+const S = {
+  id: {
+    notFound: 'File %s tidak ditemukan',
+    groupLabel: 'SSH config',
+    skippedJump: '%s: ProxyJump %s tidak dikenal'
+  },
+  en: {
+    notFound: 'File %s not found',
+    groupLabel: 'SSH config',
+    skippedJump: '%s: unknown ProxyJump %s'
+  }
+}
+
 const first = (v: string | string[] | undefined): string | undefined =>
   Array.isArray(v) ? v[0] : v
 
 /** Import concrete Host entries (no wildcards) from an OpenSSH config file. */
 export function importSshConfig(path = join(homedir(), '.ssh', 'config')): ImportResult {
-  if (!existsSync(path)) throw new Error(`File ${path} tidak ditemukan`)
+  if (!existsSync(path)) throw new Error(fmt(tr(S).notFound, path))
   const config = SSHConfig.parse(readFileSync(path, 'utf8'))
   const result: ImportResult = { added: 0, updated: 0, keys: 0, skipped: [] }
 
-  let group = vault.list<Group>('groups').find((g) => g.label === 'SSH config')
+  let group = vault.list<Group>('groups').find((g) => g.label === tr(S).groupLabel)
   if (!group) {
     group = vault.upsert<Group>('groups', {
       id: newId(),
       updatedAt: Date.now(),
-      label: 'SSH config',
+      label: tr(S).groupLabel,
       config: {}
     })
   }
@@ -106,7 +120,7 @@ export function importSshConfig(path = join(homedir(), '.ssh', 'config')): Impor
       const name = hop.replace(/^.*@/, '').replace(/:\d+$/, '')
       const id = hostIdByAlias.get(name)
       if (id) chain.push(id)
-      else result.skipped.push(`${alias}: ProxyJump ${hop} tidak dikenal`)
+      else result.skipped.push(fmt(tr(S).skippedJump, alias, hop))
     }
     const host = vault.find<Host>('hosts', hostIdByAlias.get(alias))
     if (host && chain.length)

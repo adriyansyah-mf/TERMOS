@@ -7,8 +7,28 @@ import '@xterm/xterm/css/xterm.css'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import type { Host } from '../../../shared/types'
 import { api, bridge } from '../api'
+import { fmt, useT } from '../i18n'
 import { subscribeOutput, useStore, type Pane } from '../store'
 import { themeFor } from '../themes'
+
+const S = {
+  id: {
+    reconnect: 'Sambung ulang',
+    closePane: 'Tutup panel',
+    closePaneLabel: 'Tutup panel %s',
+    connFailed: 'Koneksi gagal',
+    sessionEnded: 'Sesi berakhir',
+    close: 'Tutup'
+  },
+  en: {
+    reconnect: 'Reconnect',
+    closePane: 'Close pane',
+    closePaneLabel: 'Close pane %s',
+    connFailed: 'Connection failed',
+    sessionEnded: 'Session ended',
+    close: 'Close'
+  }
+}
 
 export interface TerminalHandle {
   paste(text: string): void
@@ -27,6 +47,7 @@ export const TerminalPane = forwardRef<
     onReconnect(): void
   }
 >(function TerminalPane({ pane, focused, onFocus, onClose, onReconnect }, ref) {
+  const t = useT(S)
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
@@ -38,8 +59,8 @@ export const TerminalPane = forwardRef<
   useImperativeHandle(ref, () => ({
     paste: (text) => termRef.current?.paste(text),
     focus: () => termRef.current?.focus(),
-    search: (t, back) =>
-      back ? searchRef.current?.findPrevious(t) : searchRef.current?.findNext(t),
+    search: (term, back) =>
+      back ? searchRef.current?.findPrevious(term) : searchRef.current?.findNext(term),
     clear: () => termRef.current?.clear()
   }))
 
@@ -81,7 +102,7 @@ export const TerminalPane = forwardRef<
         return false
       }
       if (e.code === 'KeyV') {
-        void navigator.clipboard.readText().then((t) => term.paste(t))
+        void navigator.clipboard.readText().then((txt) => term.paste(txt))
         return false
       }
       return true
@@ -119,12 +140,12 @@ export const TerminalPane = forwardRef<
   }, [pane.sessionId])
 
   useEffect(() => {
-    const t = termRef.current
-    if (!t) return
-    t.options.theme = themeFor(themeName)
-    t.options.fontSize = fontSize
-    if (settings?.fontFamily) t.options.fontFamily = settings.fontFamily
-    t.options.cursorBlink = settings?.cursorBlink ?? true
+    const term = termRef.current
+    if (!term) return
+    term.options.theme = themeFor(themeName)
+    term.options.fontSize = fontSize
+    if (settings?.fontFamily) term.options.fontFamily = settings.fontFamily
+    term.options.cursorBlink = settings?.cursorBlink ?? true
   }, [themeName, fontSize, settings?.fontFamily, settings?.cursorBlink])
 
   useEffect(() => {
@@ -146,14 +167,14 @@ export const TerminalPane = forwardRef<
         <span className="grow" />
         {ended && (
           <button className="btn sm ghost" onClick={onReconnect}>
-            Sambung ulang
+            {t.reconnect}
           </button>
         )}
         <button
           className="btn sm ghost"
           onClick={onClose}
-          title="Tutup panel"
-          aria-label={`Tutup panel ${pane.label}`}
+          title={t.closePane}
+          aria-label={fmt(t.closePaneLabel, pane.label)}
         >
           ✕
         </button>
@@ -164,27 +185,27 @@ export const TerminalPane = forwardRef<
         onContextMenu={(e) => {
           // Right click: copy selection if any, otherwise paste (PuTTY-style).
           e.preventDefault()
-          const t = termRef.current
-          if (!t) return
-          const sel = t.getSelection()
+          const term = termRef.current
+          if (!term) return
+          const sel = term.getSelection()
           if (sel) {
             void navigator.clipboard.writeText(sel)
-            t.clearSelection()
-          } else void navigator.clipboard.readText().then((x) => t.paste(x))
+            term.clearSelection()
+          } else void navigator.clipboard.readText().then((x) => term.paste(x))
         }}
       />
       {ended && (
         <div className="pane-overlay" style={{ pointerEvents: 'none' }}>
           <div style={{ pointerEvents: 'auto', textAlign: 'center' }}>
             <div className="muted" style={{ marginBottom: 10 }}>
-              {pane.status === 'error' ? pane.message || 'Koneksi gagal' : 'Sesi berakhir'}
+              {pane.status === 'error' ? pane.message || t.connFailed : t.sessionEnded}
             </div>
             <div className="row" style={{ justifyContent: 'center' }}>
               <button className="btn primary" onClick={onReconnect}>
-                Sambung ulang
+                {t.reconnect}
               </button>
               <button className="btn" onClick={onClose}>
-                Tutup
+                {t.close}
               </button>
             </div>
           </div>

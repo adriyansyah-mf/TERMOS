@@ -17,6 +17,18 @@ import type {
 } from '../../shared/types'
 import { vault } from '../vault'
 import type { SessionContext } from '../sessions/manager'
+import { fmt, tr } from '../i18n'
+
+const S = {
+  id: {
+    hostNotFound: 'Host %s tidak ditemukan',
+    proxyRefused: 'Proxy HTTP menolak CONNECT: %s'
+  },
+  en: {
+    hostNotFound: 'Host %s not found',
+    proxyRefused: 'HTTP proxy refused CONNECT: %s'
+  }
+}
 
 export interface ResolvedHost {
   host: Host
@@ -29,7 +41,7 @@ export interface ResolvedHost {
 export function resolveHost(hostOrId: string | Partial<Host>): ResolvedHost {
   const host: Host =
     typeof hostOrId === 'string'
-      ? (vault.find<Host>('hosts', hostOrId) ?? fail(`Host ${hostOrId} tidak ditemukan`))
+      ? (vault.find<Host>('hosts', hostOrId) ?? fail(fmt(tr(S).hostNotFound, hostOrId)))
       : ({
           id: 'adhoc',
           label: hostOrId.address ?? 'adhoc',
@@ -115,7 +127,7 @@ async function httpConnect(p: ProxyDef, host: string, port: number): Promise<Soc
   })
   if (!/^HTTP\/1\.[01] 200/.test(head)) {
     sock.destroy()
-    throw new Error(`Proxy HTTP menolak CONNECT: ${head.split('\r\n')[0]}`)
+    throw new Error(fmt(tr(S).proxyRefused, head.split('\r\n')[0]))
   }
   return sock
 }

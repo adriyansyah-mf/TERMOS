@@ -2,6 +2,7 @@ import type {
   CollectionName,
   Entity,
   ForwardStatus,
+  Language,
   OpenSessionRequest,
   ProxmoxServer,
   PveResource,
@@ -43,6 +44,8 @@ export interface VaultStatus {
   exists: boolean
   unlocked: boolean
   quickUnlock: boolean
+  /** From plaintext prefs.json; the UI language is known even before unlock. */
+  language: Language
 }
 
 export interface PveSnapshot {

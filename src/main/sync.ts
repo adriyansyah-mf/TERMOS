@@ -7,6 +7,7 @@ import {
   type TeamVault
 } from '../shared/types'
 import { b64, open, seal, unb64, type SealedBox } from './crypto'
+import { fmt, tr } from './i18n'
 import {
   deriveAccountKeys,
   keyFingerprint,
@@ -21,6 +22,33 @@ import {
   type SealedToKey
 } from './syncCrypto'
 import { vault } from './vault'
+
+const S = {
+  id: {
+    httpsRequired:
+      'Server di internet harus memakai https://. http:// hanya untuk localhost atau jaringan lokal.',
+    unreachable: 'Server tidak bisa dihubungi (%s)',
+    sessionEnded: 'Sesi sync berakhir (perangkat dicabut atau password diganti). Login lagi.',
+    notLoggedIn: 'Belum login',
+    httpStatus: 'HTTP %s',
+    passwordMinLength: 'Password akun minimal 10 karakter',
+    deviceName: 'Termos di %s',
+    fingerprintChanged: 'Fingerprint kunci berubah sejak dicek. Anggota tidak ditambahkan.',
+    teamNotFound: 'Tim tidak ditemukan'
+  },
+  en: {
+    httpsRequired:
+      'Servers on the internet must use https://. http:// is only for localhost or a local network.',
+    unreachable: 'Cannot reach the server (%s)',
+    sessionEnded: 'Sync session ended (device revoked or password changed). Log in again.',
+    notLoggedIn: 'Not logged in',
+    httpStatus: 'HTTP %s',
+    passwordMinLength: 'Account password must be at least 10 characters',
+    deviceName: 'Termos on %s',
+    fingerprintChanged: 'The key fingerprint changed since you checked it. Member not added.',
+    teamNotFound: 'Team not found'
+  }
+}
 
 export interface SyncStatus {
   connected: boolean
@@ -84,10 +112,7 @@ export function normalizeServerUrl(input: string): string {
       PRIVATE_V4.test(h) ||
       h.endsWith('.local') ||
       h.endsWith('.lan')
-    if (!local)
-      throw new Error(
-        'Server di internet harus memakai https://. http:// hanya untuk localhost atau jaringan lokal.'
-      )
+    if (!local) throw new Error(tr(S).httpsRequired)
   }
   return u.toString().replace(/\/+$/, '')
 }
@@ -115,16 +140,14 @@ class SyncService extends EventEmitter {
         signal: AbortSignal.timeout(30000)
       })
     } catch (err) {
-      throw new Error(`Server tidak bisa dihubungi (${(err as Error).message})`)
+      throw new Error(fmt(tr(S).unreachable, (err as Error).message))
     }
     const data = (await res.json().catch(() => ({}))) as { error?: string }
     if (res.status === 401 && !base) {
-      this.forgetAccount(
-        'Sesi sync berakhir (perangkat dicabut atau password diganti). Login lagi.'
-      )
-      throw new Error(data.error ?? 'Belum login')
+      this.forgetAccount(tr(S).sessionEnded)
+      throw new Error(data.error ?? tr(S).notLoggedIn)
     }
-    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+    if (!res.ok) throw new Error(data.error ?? fmt(tr(S).httpStatus, String(res.status)))
     return data as T
   }
 
@@ -155,7 +178,7 @@ class SyncService extends EventEmitter {
     password: string,
     inviteCode?: string
   ): Promise<void> {
-    if (password.length < 10) throw new Error('Password akun minimal 10 karakter')
+    if (password.length < 10) throw new Error(tr(S).passwordMinLength)
     const base = normalizeServerUrl(serverUrl)
     const kdf = newAccountKdf()
     const { authKey, encKey } = await deriveAccountKeys(password, kdf)
@@ -171,7 +194,7 @@ class SyncService extends EventEmitter {
         wrappedKey: wrap(encKey, syncKey, 'syncKey'),
         publicKey: pair.publicKey,
         wrappedPrivateKey: wrap(encKey, pair.privateKey, 'privateKey'),
-        deviceName: `Termos di ${hostname()}`,
+        deviceName: fmt(tr(S).deviceName, hostname()),
         inviteCode: inviteCode || undefined
       },
       base
@@ -201,7 +224,7 @@ class SyncService extends EventEmitter {
       wrappedKey: SealedBox
       publicKey: string
       wrappedPrivateKey: SealedBox
-    }>('POST', '/login', { username, authKey, deviceName: `Termos di ${hostname()}` }, base)
+    }>('POST', '/login', { username, authKey, deviceName: fmt(tr(S).deviceName, hostname()) }, base)
     const syncKey = unwrap(encKey, r.wrappedKey, 'syncKey')
     const privateKey = unwrap(encKey, r.wrappedPrivateKey, 'privateKey')
     this.adoptAccount(
@@ -276,7 +299,7 @@ class SyncService extends EventEmitter {
   }
 
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
-    if (newPassword.length < 10) throw new Error('Password akun minimal 10 karakter')
+    if (newPassword.length < 10) throw new Error(tr(S).passwordMinLength)
     const s = vault.get().settings.sync
     const pre = await this.call<{ kdf: AccountKdf }>('POST', '/prelogin', { username: s.username })
     const old = await deriveAccountKeys(oldPassword, pre.kdf)
@@ -333,7 +356,7 @@ class SyncService extends EventEmitter {
       `/users/${encodeURIComponent(username)}/key`
     )
     if (keyFingerprint(u.publicKey) !== expectedFingerprint)
-      throw new Error('Fingerprint kunci berubah sejak dicek. Anggota tidak ditambahkan.')
+      throw new Error(tr(S).fingerprintChanged)
     await this.call('POST', `/teams/${teamId}/members`, {
       userId: u.userId,
       wrappedTeamKey: sealTo(u.publicKey, unb64(team.key))
@@ -362,7 +385,7 @@ class SyncService extends EventEmitter {
 
   private team(teamId: string): TeamVault {
     const t = vault.get().teams.find((x) => x.id === teamId)
-    if (!t) throw new Error('Tim tidak ditemukan')
+    if (!t) throw new Error(tr(S).teamNotFound)
     return t
   }
 

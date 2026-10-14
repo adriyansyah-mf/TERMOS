@@ -2,10 +2,50 @@ import { useState } from 'react'
 import { newId } from '../../../shared/merge'
 import type { Snippet } from '../../../shared/types'
 import { api } from '../api'
+import { fmt, useT } from '../i18n'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
 import { VaultSelect } from '../components/VaultSelect'
 import { confirmDialog } from '../lib'
+
+const S = {
+  id: {
+    editSnippet: 'Edit snippet',
+    newSnippet: 'Snippet baru',
+    cancel: 'Batal',
+    save: 'Simpan',
+    name: 'Nama',
+    namePh: 'Cek disk',
+    teamHint: 'Snippet di tim bisa dijalankan semua anggota.',
+    command: 'Perintah',
+    commandHint: 'Tiap baris dikirim sebagai perintah terpisah.',
+    intro:
+      'Perintah yang sering dipakai. Jalankan lewat tombol Snippet di tab terminal, atau pasang sebagai snippet saat login di pengaturan host.',
+    empty:
+      'Belum ada snippet. Simpan perintah yang sering kamu ketik, misalnya cek disk atau restart service.',
+    deleteTitle: 'Hapus snippet',
+    delete: 'Hapus',
+    deleteConfirm: 'Hapus "%s"?'
+  },
+  en: {
+    editSnippet: 'Edit snippet',
+    newSnippet: 'New snippet',
+    cancel: 'Cancel',
+    save: 'Save',
+    name: 'Name',
+    namePh: 'Check disk',
+    teamHint: 'Team snippets can be run by every team member.',
+    command: 'Command',
+    commandHint: 'Each line is sent as a separate command.',
+    intro:
+      'Frequently used commands. Run them with the Snippet button in a terminal tab, or install as a login snippet in the host settings.',
+    empty:
+      'No snippets yet. Save the commands you type often, like checking disk or restarting a service.',
+    deleteTitle: 'Delete snippet',
+    delete: 'Delete',
+    deleteConfirm: 'Delete "%s"?'
+  }
+}
 
 function SnippetEditor({
   snippet,
@@ -14,18 +54,19 @@ function SnippetEditor({
   snippet?: Snippet
   onClose(): void
 }): React.JSX.Element {
+  const t = useT(S)
   const [s, setS] = useState<Snippet>(
     snippet ?? { id: newId(), updatedAt: 0, label: '', script: '' }
   )
   return (
     <Modal
       wide
-      title={snippet ? 'Edit snippet' : 'Snippet baru'}
+      title={snippet ? t.editSnippet : t.newSnippet}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
@@ -35,26 +76,26 @@ function SnippetEditor({
               onClose()
             }}
           >
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
-      <Field label="Nama">
+      <Field label={t.name}>
         <input
           className="input"
           autoFocus
           value={s.label}
           onChange={(e) => setS({ ...s, label: e.target.value })}
-          placeholder="Cek disk"
+          placeholder={t.namePh}
         />
       </Field>
       <VaultSelect
         value={s.teamId}
         onChange={(teamId) => setS({ ...s, teamId })}
-        hint="Snippet di tim bisa dijalankan semua anggota."
+        hint={t.teamHint}
       />
-      <Field label="Perintah" hint="Tiap baris dikirim sebagai perintah terpisah.">
+      <Field label={t.command} hint={t.commandHint}>
         <textarea
           className="textarea"
           style={{ minHeight: 160 }}
@@ -70,6 +111,7 @@ function SnippetEditor({
 
 export function SnippetsView(): React.JSX.Element {
   const snippets = useStore((s) => s.data?.snippets ?? [])
+  const t = useT(S)
   const [editing, setEditing] = useState<{ v?: Snippet } | null>(null)
   return (
     <div className="view">
@@ -77,29 +119,23 @@ export function SnippetsView(): React.JSX.Element {
         <h1>Snippets</h1>
         <span className="grow" />
         <button className="btn primary" onClick={() => setEditing({})}>
-          Snippet baru
+          {t.newSnippet}
         </button>
       </div>
-      <p className="view-intro">
-        Perintah yang sering dipakai. Jalankan lewat tombol Snippet di tab terminal, atau pasang
-        sebagai snippet saat login di pengaturan host.
-      </p>
+      <p className="view-intro">{t.intro}</p>
       {snippets.length === 0 ? (
         <div className="empty">
-          <p>
-            Belum ada snippet. Simpan perintah yang sering kamu ketik, misalnya cek disk atau
-            restart service.
-          </p>
+          <p>{t.empty}</p>
           <button className="btn" onClick={() => setEditing({})}>
-            Snippet baru
+            {t.newSnippet}
           </button>
         </div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Nama</th>
-              <th>Perintah</th>
+              <th>{t.name}</th>
+              <th>{t.command}</th>
               <th />
             </tr>
           </thead>
@@ -118,15 +154,15 @@ export function SnippetsView(): React.JSX.Element {
                     className="btn sm ghost danger"
                     onClick={async () => {
                       if (
-                        await confirmDialog('Hapus snippet', `Hapus "${s.label}"?`, {
+                        await confirmDialog(t.deleteTitle, fmt(t.deleteConfirm, s.label), {
                           danger: true,
-                          okLabel: 'Hapus'
+                          okLabel: t.delete
                         })
                       )
                         await api.remove('snippets', s.id)
                     }}
                   >
-                    Hapus
+                    {t.delete}
                   </button>
                 </td>
               </tr>

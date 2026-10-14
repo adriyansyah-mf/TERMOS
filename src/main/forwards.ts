@@ -1,9 +1,25 @@
 import { EventEmitter } from 'node:events'
 import { connect as netConnect, createServer, type Server, type Socket } from 'node:net'
 import type { ForwardRule, ForwardStatus, Host } from '../shared/types'
+import { tr } from './i18n'
 import { connectSsh, type SshConnection } from './ssh/connect'
 import { sessions } from './sessions/manager'
 import { vault } from './vault'
+
+const S = {
+  id: {
+    ruleNotFound: 'Aturan forwarding tidak ditemukan',
+    hostNotFound: 'Host forwarding tidak ditemukan',
+    sshDisconnected: 'Koneksi SSH terputus',
+    destMissing: 'Tujuan forwarding belum diisi'
+  },
+  en: {
+    ruleNotFound: 'Forwarding rule not found',
+    hostNotFound: 'Forwarding host not found',
+    sshDisconnected: 'SSH connection lost',
+    destMissing: 'Forwarding destination not filled in'
+  }
+}
 
 interface Running {
   rule: ForwardRule
@@ -33,7 +49,7 @@ class Forwards extends EventEmitter {
   async start(ruleId: string, existing?: SshConnection): Promise<void> {
     if (this.running.has(ruleId)) return
     const rule = vault.find<ForwardRule>('forwardRules', ruleId)
-    if (!rule) throw new Error('Aturan forwarding tidak ditemukan')
+    if (!rule) throw new Error(tr(S).ruleNotFound)
     this.errors.delete(ruleId)
     let conn = existing
     try {
@@ -42,7 +58,7 @@ class Forwards extends EventEmitter {
         const ctx = sessions.create(`forward:${rule.label}`, rule.hostId)
         conn = await connectSsh(rule.hostId, ctx)
         sessions.close(ctx.id)
-        if (!host) throw new Error('Host forwarding tidak ditemukan')
+        if (!host) throw new Error(tr(S).hostNotFound)
       }
       const running = await this.open(rule, conn, !existing)
       this.running.set(ruleId, running)
@@ -50,7 +66,7 @@ class Forwards extends EventEmitter {
         if (this.running.get(ruleId) === running) {
           running.server?.close()
           this.running.delete(ruleId)
-          this.errors.set(ruleId, 'Koneksi SSH terputus')
+          this.errors.set(ruleId, tr(S).sshDisconnected)
           this.changed()
         }
       })
@@ -100,7 +116,7 @@ class Forwards extends EventEmitter {
     })
 
     if (rule.type === 'local') {
-      if (!rule.destHost || !rule.destPort) throw new Error('Tujuan forwarding belum diisi')
+      if (!rule.destHost || !rule.destPort) throw new Error(tr(S).destMissing)
       const server = createServer((sock) => {
         client.forwardOut(
           sock.remoteAddress ?? '127.0.0.1',
@@ -123,7 +139,7 @@ class Forwards extends EventEmitter {
     }
 
     if (rule.type === 'remote') {
-      if (!rule.destHost || !rule.destPort) throw new Error('Tujuan forwarding belum diisi')
+      if (!rule.destHost || !rule.destPort) throw new Error(tr(S).destMissing)
       const bind = rule.bindAddress || '127.0.0.1'
       await new Promise<void>((resolve, reject) =>
         client.forwardIn(bind, rule.bindPort, (err) => (err ? reject(err) : resolve()))

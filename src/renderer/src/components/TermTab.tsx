@@ -1,11 +1,44 @@
 import { useRef, useState } from 'react'
+import { useT } from '../i18n'
 import { useStore, type Tab } from '../store'
 import { HostPicker } from './HostPicker'
 import { ShareDialog } from './ShareDialog'
 import { SftpPanel } from './SftpPanel'
 import { TerminalPane, type TerminalHandle } from './TerminalPane'
 
+const S = {
+  id: {
+    splitHint: 'Belah layar (maks 4)',
+    openSftp: 'Buka file manager SFTP',
+    sftpSshOnly: 'SFTP hanya untuk host SSH yang tersimpan',
+    shareHint: 'Bagikan panel aktif secara live lewat server sync',
+    share: 'Bagikan',
+    noSnippets: 'Belum ada snippet. Buat di menu Snippets (Ctrl 3).',
+    broadcastHint: 'Snippet dikirim ke semua panel',
+    broadcast: 'Broadcast snippet',
+    searchPlaceholder: 'Cari di terminal…',
+    clearHint: 'Bersihkan layar',
+    clear: 'Bersihkan',
+    openInNewPane: 'Buka di panel baru'
+  },
+  en: {
+    splitHint: 'Split pane (max 4)',
+    openSftp: 'Open the SFTP file manager',
+    sftpSshOnly: 'SFTP is only available for saved SSH hosts',
+    shareHint: 'Share the active pane live via the sync server',
+    share: 'Share',
+    noSnippets: 'No snippets yet. Create them in the Snippets menu (Ctrl 3).',
+    broadcastHint: 'Snippets are sent to all panes',
+    broadcast: 'Broadcast snippet',
+    searchPlaceholder: 'Search terminal…',
+    clearHint: 'Clear screen',
+    clear: 'Clear',
+    openInNewPane: 'Open in a new pane'
+  }
+}
+
 export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React.JSX.Element {
+  const t = useT(S)
   const { closePane, reconnect, focusPane, toggleSftp, openSession } = useStore.getState()
   const snippets = useStore((s) => s.data?.snippets ?? [])
   const hosts = useStore((s) => s.data?.hosts ?? [])
@@ -41,7 +74,7 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           className="btn sm"
           onClick={() => setPicking(true)}
           disabled={n >= 4}
-          title="Belah layar (maks 4)"
+          title={t.splitHint}
         >
           Split
         </button>
@@ -50,9 +83,7 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           aria-pressed={!!tab.sftp}
           disabled={!sftpAvailable && !tab.sftp}
           onClick={() => toggleSftp(tab.id)}
-          title={
-            sftpAvailable ? 'Buka file manager SFTP' : 'SFTP hanya untuk host SSH yang tersimpan'
-          }
+          title={sftpAvailable ? t.openSftp : t.sftpSshOnly}
         >
           SFTP
         </button>
@@ -60,9 +91,9 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           className="btn sm"
           disabled={!focusedPane || focusedPane.target.kind === 'multiplayer'}
           onClick={() => setSharing(true)}
-          title="Bagikan panel aktif secara live lewat server sync"
+          title={t.shareHint}
         >
-          Bagikan
+          {t.share}
         </button>
         <div style={{ position: 'relative' }}>
           <button
@@ -81,7 +112,7 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
             >
               {!snippets.length && (
                 <div className="muted small" style={{ padding: 10 }}>
-                  Belum ada snippet. Buat di menu Snippets (Ctrl 3).
+                  {t.noSnippets}
                 </div>
               )}
               {snippets.map((s, i) => (
@@ -99,19 +130,19 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
           )}
         </div>
         {n > 1 && (
-          <label className="row small muted" title="Snippet dikirim ke semua panel">
+          <label className="row small muted" title={t.broadcastHint}>
             <input
               type="checkbox"
               checked={broadcast}
               onChange={(e) => setBroadcast(e.target.checked)}
             />
-            Broadcast snippet
+            {t.broadcast}
           </label>
         )}
         <span className="grow" />
         <input
           className="input term-search"
-          placeholder="Cari di terminal…"
+          placeholder={t.searchPlaceholder}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value)
@@ -128,10 +159,10 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
         />
         <button
           className="btn sm ghost"
-          title="Bersihkan layar"
+          title={t.clearHint}
           onClick={() => handles.current.get(focusedPane.sessionId)?.clear()}
         >
-          Bersihkan
+          {t.clear}
         </button>
       </div>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -174,7 +205,7 @@ export function TermTab({ tab, visible }: { tab: Tab; visible: boolean }): React
       )}
       {picking && (
         <HostPicker
-          title="Buka di panel baru"
+          title={t.openInNewPane}
           onClose={() => setPicking(false)}
           onPick={(h) => {
             setPicking(false)

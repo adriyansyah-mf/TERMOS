@@ -2,18 +2,129 @@ import { useEffect, useState } from 'react'
 import { newId } from '../../../shared/merge'
 import type { Identity, ProxyDef, SshKey } from '../../../shared/types'
 import { api, errMsg } from '../api'
+import { fmt, useT } from '../i18n'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
 import { VaultSelect } from '../components/VaultSelect'
 import { confirmDialog } from '../lib'
 
+const S = {
+  id: {
+    close: 'Tutup',
+    fingerprint: 'Fingerprint',
+    copied: '%s disalin',
+    movedToTeam: 'Key dipindah ke tim',
+    movedToPrivate: 'Key dipindah ke vault pribadi',
+    teamKeyHint: 'Key di tim (termasuk private key-nya) bisa dipakai semua anggota tim.',
+    publicKey: 'Public key',
+    publicKeyHint: 'Tempel ke ~/.ssh/authorized_keys di server, atau pakai ssh-copy-id.',
+    copyPublicKey: 'Salin public key',
+    command: 'Perintah',
+    copyInstallCmd: 'Salin perintah pasang ke server',
+    newSshKey: 'SSH key baru',
+    cancel: 'Batal',
+    generateKey: 'Buat key',
+    save: 'Simpan',
+    generate: 'Buat baru',
+    pasteKey: 'Tempel private key',
+    name: 'Nama',
+    namePh: 'laptop-kantor',
+    type: 'Tipe',
+    ed25519Rec: 'Ed25519 (disarankan)',
+    certOptional: 'Sertifikat (opsional)',
+    certHint:
+      'Isi *-cert.pub kalau server memakai SSH certificate. Gunakan engine OpenSSH untuk host-nya.',
+    passphraseOptional: 'Passphrase (opsional)',
+    passHint: 'Disimpan terenkripsi di vault, jadi tidak ditanya tiap konek.',
+    keySaved: 'Key disimpan',
+    editIdentity: 'Edit identity',
+    newIdentity: 'Identity baru',
+    identityIntro: 'Identity = username + password/key yang bisa dipakai banyak host sekaligus.',
+    none: '(tidak ada)',
+    editProxy: 'Edit proxy',
+    newProxy: 'Proxy baru',
+    proxyCommandOpt: 'Perintah (ProxyCommand)',
+    commandHint: '%h = host tujuan, %p = port, %r = user. Contoh: nc -X 5 -x proxy:1080 %h %p',
+    usernameOptional: 'Username (opsional)',
+    passwordOptional: 'Password (opsional)',
+    keyImported: 'Key "%s" diimpor',
+    importKeyFile: 'Import file key',
+    noKeys: 'Belum ada key. Buat key Ed25519 baru atau import dari ~/.ssh.',
+    certHeader: 'Sertifikat',
+    stored: 'tersimpan',
+    notSet: 'tidak ada',
+    yes: 'ada',
+    delete: 'Hapus',
+    deleteConfirm: 'Hapus "%s"?',
+    noIdentities: 'Belum ada identity.',
+    loginWith: 'Login dengan',
+    askOnConnect: 'tanya saat konek',
+    noProxies: 'Belum ada proxy.',
+    target: 'Tujuan'
+  },
+  en: {
+    close: 'Close',
+    fingerprint: 'Fingerprint',
+    copied: '%s copied',
+    movedToTeam: 'Key moved to team',
+    movedToPrivate: 'Key moved to personal vault',
+    teamKeyHint: 'Team keys (including the private key) can be used by every team member.',
+    publicKey: 'Public key',
+    publicKeyHint: 'Paste into ~/.ssh/authorized_keys on the server, or use ssh-copy-id.',
+    copyPublicKey: 'Copy public key',
+    command: 'Command',
+    copyInstallCmd: 'Copy server install command',
+    newSshKey: 'New SSH key',
+    cancel: 'Cancel',
+    generateKey: 'Generate key',
+    save: 'Save',
+    generate: 'Generate',
+    pasteKey: 'Paste private key',
+    name: 'Name',
+    namePh: 'work-laptop',
+    type: 'Type',
+    ed25519Rec: 'Ed25519 (recommended)',
+    certOptional: 'Certificate (optional)',
+    certHint:
+      'Fill in the *-cert.pub if the server uses SSH certificates. Use the OpenSSH engine for that host.',
+    passphraseOptional: 'Passphrase (optional)',
+    passHint: 'Stored encrypted in the vault, so you are not asked on every connection.',
+    keySaved: 'Key saved',
+    editIdentity: 'Edit identity',
+    newIdentity: 'New identity',
+    identityIntro: 'An identity is a username + password/key you can reuse across many hosts.',
+    none: '(none)',
+    editProxy: 'Edit proxy',
+    newProxy: 'New proxy',
+    proxyCommandOpt: 'Command (ProxyCommand)',
+    commandHint: '%h = target host, %p = port, %r = user. Example: nc -X 5 -x proxy:1080 %h %p',
+    usernameOptional: 'Username (optional)',
+    passwordOptional: 'Password (optional)',
+    keyImported: 'Key "%s" imported',
+    importKeyFile: 'Import key file',
+    noKeys: 'No keys yet. Generate a new Ed25519 key or import from ~/.ssh.',
+    certHeader: 'Certificate',
+    stored: 'saved',
+    notSet: 'none',
+    yes: 'yes',
+    delete: 'Delete',
+    deleteConfirm: 'Delete "%s"?',
+    noIdentities: 'No identities yet.',
+    loginWith: 'Logs in with',
+    askOnConnect: 'ask on connect',
+    noProxies: 'No proxies yet.',
+    target: 'Target'
+  }
+}
+
 function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.Element {
   const toast = useStore((s) => s.toast)
+  const t = useT(S)
   const [fp, setFp] = useState('')
   useEffect(() => void api.keyFingerprint(k.id).then(setFp), [k.id])
   const copy = (text: string, what: string): void => {
     void navigator.clipboard.writeText(text)
-    toast(`${what} disalin`)
+    toast(fmt(t.copied, what))
   }
   return (
     <Modal
@@ -22,11 +133,11 @@ function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.E
       onClose={onClose}
       footer={
         <button className="btn" onClick={onClose}>
-          Tutup
+          {t.close}
         </button>
       }
     >
-      <Field label="Fingerprint">
+      <Field label={t.fingerprint}>
         <div className="fp">{fp}</div>
       </Field>
       <VaultSelect
@@ -34,30 +145,27 @@ function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.E
         onChange={(teamId) => {
           void api
             .upsert<SshKey>('keys', { ...k, teamId })
-            .then(() => toast(teamId ? 'Key dipindah ke tim' : 'Key dipindah ke vault pribadi'))
+            .then(() => toast(teamId ? t.movedToTeam : t.movedToPrivate))
         }}
-        hint="Key di tim (termasuk private key-nya) bisa dipakai semua anggota tim."
+        hint={t.teamKeyHint}
       />
-      <Field
-        label="Public key"
-        hint="Tempel ke ~/.ssh/authorized_keys di server, atau pakai ssh-copy-id."
-      >
+      <Field label={t.publicKey} hint={t.publicKeyHint}>
         <textarea className="textarea" readOnly value={k.publicKey} style={{ minHeight: 80 }} />
       </Field>
       <div className="row">
-        <button className="btn" onClick={() => copy(k.publicKey, 'Public key')}>
-          Salin public key
+        <button className="btn" onClick={() => copy(k.publicKey, t.publicKey)}>
+          {t.copyPublicKey}
         </button>
         <button
           className="btn"
           onClick={() =>
             copy(
               `mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${k.publicKey.trim()}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`,
-              'Perintah'
+              t.command
             )
           }
         >
-          Salin perintah pasang ke server
+          {t.copyInstallCmd}
         </button>
       </div>
     </Modal>
@@ -66,6 +174,7 @@ function KeyDetails({ k, onClose }: { k: SshKey; onClose(): void }): React.JSX.E
 
 function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
   const toast = useStore((s) => s.toast)
+  const t = useT(S)
   const [mode, setMode] = useState<'generate' | 'paste'>('generate')
   const [label, setLabel] = useState('')
   const [kind, setKind] = useState<'ed25519' | 'rsa' | 'ecdsa'>('ed25519')
@@ -85,7 +194,7 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
           pass || undefined,
           cert.trim() || undefined
         )
-      toast('Key disimpan')
+      toast(t.keySaved)
       onClose()
     } catch (e) {
       toast(errMsg(e), 'error')
@@ -97,19 +206,19 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
   return (
     <Modal
       wide
-      title="SSH key baru"
+      title={t.newSshKey}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
             disabled={busy || !label.trim() || (mode === 'paste' && !priv.trim())}
             onClick={submit}
           >
-            {mode === 'generate' ? 'Buat key' : 'Simpan'}
+            {mode === 'generate' ? t.generateKey : t.save}
           </button>
         </>
       }
@@ -119,33 +228,33 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
           className={'btn sm' + (mode === 'generate' ? ' on' : '')}
           onClick={() => setMode('generate')}
         >
-          Buat baru
+          {t.generate}
         </button>
         <button
           className={'btn sm' + (mode === 'paste' ? ' on' : '')}
           onClick={() => setMode('paste')}
         >
-          Tempel private key
+          {t.pasteKey}
         </button>
       </div>
       <div className="grid-2">
-        <Field label="Nama">
+        <Field label={t.name}>
           <input
             className="input"
             autoFocus
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="laptop-kantor"
+            placeholder={t.namePh}
           />
         </Field>
         {mode === 'generate' ? (
-          <Field label="Tipe">
+          <Field label={t.type}>
             <select
               className="select"
               value={kind}
               onChange={(e) => setKind(e.target.value as typeof kind)}
             >
-              <option value="ed25519">Ed25519 (disarankan)</option>
+              <option value="ed25519">{t.ed25519Rec}</option>
               <option value="ecdsa">ECDSA P-256</option>
               <option value="rsa">RSA 4096</option>
             </select>
@@ -164,10 +273,7 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
             />
           </Field>
-          <Field
-            label="Sertifikat (opsional)"
-            hint="Isi *-cert.pub kalau server memakai SSH certificate. Gunakan engine OpenSSH untuk host-nya."
-          >
+          <Field label={t.certOptional} hint={t.certHint}>
             <textarea
               className="textarea"
               style={{ minHeight: 50 }}
@@ -177,10 +283,7 @@ function NewKey({ onClose }: { onClose(): void }): React.JSX.Element {
           </Field>
         </>
       )}
-      <Field
-        label="Passphrase (opsional)"
-        hint="Disimpan terenkripsi di vault, jadi tidak ditanya tiap konek."
-      >
+      <Field label={t.passphraseOptional} hint={t.passHint}>
         <input
           className="input"
           type="password"
@@ -200,17 +303,18 @@ function IdentityEditor({
   onClose(): void
 }): React.JSX.Element {
   const keys = useStore((s) => s.data?.keys ?? [])
+  const t = useT(S)
   const [i, setI] = useState<Identity>(
     identity ?? { id: newId(), updatedAt: 0, label: '', username: '' }
   )
   return (
     <Modal
-      title={identity ? 'Edit identity' : 'Identity baru'}
+      title={identity ? t.editIdentity : t.newIdentity}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
@@ -220,15 +324,15 @@ function IdentityEditor({
               onClose()
             }}
           >
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <p className="dim small" style={{ marginTop: 0 }}>
-        Identity = username + password/key yang bisa dipakai banyak host sekaligus.
+        {t.identityIntro}
       </p>
-      <Field label="Nama">
+      <Field label={t.name}>
         <input
           className="input"
           autoFocus
@@ -258,7 +362,7 @@ function IdentityEditor({
           value={i.keyId ?? ''}
           onChange={(e) => setI({ ...i, keyId: e.target.value || undefined })}
         >
-          <option value="">(tidak ada)</option>
+          <option value="">{t.none}</option>
           {keys.map((k) => (
             <option key={k.id} value={k.id}>
               {k.label}
@@ -271,17 +375,18 @@ function IdentityEditor({
 }
 
 function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }): React.JSX.Element {
+  const t = useT(S)
   const [p, setP] = useState<ProxyDef>(
     proxy ?? { id: newId(), updatedAt: 0, label: '', type: 'socks5', host: '127.0.0.1', port: 1080 }
   )
   return (
     <Modal
-      title={proxy ? 'Edit proxy' : 'Proxy baru'}
+      title={proxy ? t.editProxy : t.newProxy}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
@@ -291,13 +396,13 @@ function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }):
               onClose()
             }}
           >
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Nama">
+        <Field label={t.name}>
           <input
             className="input"
             autoFocus
@@ -305,7 +410,7 @@ function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }):
             onChange={(e) => setP({ ...p, label: e.target.value })}
           />
         </Field>
-        <Field label="Tipe">
+        <Field label={t.type}>
           <select
             className="select"
             value={p.type}
@@ -314,15 +419,12 @@ function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }):
             <option value="socks5">SOCKS5</option>
             <option value="socks4">SOCKS4</option>
             <option value="http">HTTP CONNECT</option>
-            <option value="command">Perintah (ProxyCommand)</option>
+            <option value="command">{t.proxyCommandOpt}</option>
           </select>
         </Field>
       </div>
       {p.type === 'command' ? (
-        <Field
-          label="Perintah"
-          hint="%h = host tujuan, %p = port, %r = user. Contoh: nc -X 5 -x proxy:1080 %h %p"
-        >
+        <Field label={t.command} hint={t.commandHint}>
           <input
             className="input mono"
             value={p.command ?? ''}
@@ -348,14 +450,14 @@ function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }):
             </Field>
           </div>
           <div className="grid-2">
-            <Field label="Username (opsional)">
+            <Field label={t.usernameOptional}>
               <input
                 className="input"
                 value={p.username ?? ''}
                 onChange={(e) => setP({ ...p, username: e.target.value || undefined })}
               />
             </Field>
-            <Field label="Password (opsional)">
+            <Field label={t.passwordOptional}>
               <input
                 className="input"
                 type="password"
@@ -373,6 +475,7 @@ function ProxyEditor({ proxy, onClose }: { proxy?: ProxyDef; onClose(): void }):
 export function KeychainView(): React.JSX.Element {
   const data = useStore((s) => s.data)!
   const toast = useStore((s) => s.toast)
+  const t = useT(S)
   const [newKey, setNewKey] = useState(false)
   const [detail, setDetail] = useState<SshKey | null>(null)
   const [identity, setIdentity] = useState<{ v?: Identity } | null>(null)
@@ -383,7 +486,12 @@ export function KeychainView(): React.JSX.Element {
     id: string,
     label: string
   ): Promise<void> => {
-    if (await confirmDialog('Hapus', `Hapus "${label}"?`, { danger: true, okLabel: 'Hapus' }))
+    if (
+      await confirmDialog(t.delete, fmt(t.deleteConfirm, label), {
+        danger: true,
+        okLabel: t.delete
+      })
+    )
       await api.remove(c, id)
   }
 
@@ -397,32 +505,30 @@ export function KeychainView(): React.JSX.Element {
           onClick={async () => {
             try {
               const k = await api.keyImportFile()
-              if (k) toast(`Key "${k.label}" diimpor`)
+              if (k) toast(fmt(t.keyImported, k.label))
             } catch (e) {
               toast(errMsg(e), 'error')
             }
           }}
         >
-          Import file key
+          {t.importKeyFile}
         </button>
         <button className="btn primary" onClick={() => setNewKey(true)}>
-          SSH key baru
+          {t.newSshKey}
         </button>
       </div>
 
       <div className="section-title">SSH key</div>
       {data.keys.length === 0 ? (
-        <div className="dim small">
-          Belum ada key. Buat key Ed25519 baru atau import dari ~/.ssh.
-        </div>
+        <div className="dim small">{t.noKeys}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Nama</th>
-              <th>Tipe</th>
+              <th>{t.name}</th>
+              <th>{t.type}</th>
               <th>Passphrase</th>
-              <th>Sertifikat</th>
+              <th>{t.certHeader}</th>
               <th />
             </tr>
           </thead>
@@ -431,17 +537,17 @@ export function KeychainView(): React.JSX.Element {
               <tr key={k.id}>
                 <td className="cell-title">{k.label}</td>
                 <td className="mono small">{k.keyType}</td>
-                <td className="muted">{k.passphrase ? 'tersimpan' : 'tidak ada'}</td>
-                <td className="muted">{k.certificate ? 'ada' : ''}</td>
+                <td className="muted">{k.passphrase ? t.stored : t.notSet}</td>
+                <td className="muted">{k.certificate ? t.yes : ''}</td>
                 <td className="actions">
                   <button className="btn sm" onClick={() => setDetail(k)}>
-                    Public key
+                    {t.publicKey}
                   </button>
                   <button
                     className="btn sm ghost danger"
                     onClick={() => del('keys', k.id, k.label)}
                   >
-                    Hapus
+                    {t.delete}
                   </button>
                 </td>
               </tr>
@@ -453,18 +559,18 @@ export function KeychainView(): React.JSX.Element {
       <div className="row">
         <div className="section-title grow">Identity</div>
         <button className="btn sm" onClick={() => setIdentity({})}>
-          Identity baru
+          {t.newIdentity}
         </button>
       </div>
       {data.identities.length === 0 ? (
-        <div className="dim small">Belum ada identity.</div>
+        <div className="dim small">{t.noIdentities}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Nama</th>
+              <th>{t.name}</th>
               <th>Username</th>
-              <th>Login dengan</th>
+              <th>{t.loginWith}</th>
               <th />
             </tr>
           </thead>
@@ -475,7 +581,7 @@ export function KeychainView(): React.JSX.Element {
                 <td className="mono small">{i.username}</td>
                 <td className="muted">
                   {[i.password && 'password', i.keyId && 'key'].filter(Boolean).join(' + ') ||
-                    'tanya saat konek'}
+                    t.askOnConnect}
                 </td>
                 <td className="actions">
                   <button className="btn sm" onClick={() => setIdentity({ v: i })}>
@@ -485,7 +591,7 @@ export function KeychainView(): React.JSX.Element {
                     className="btn sm ghost danger"
                     onClick={() => del('identities', i.id, i.label)}
                   >
-                    Hapus
+                    {t.delete}
                   </button>
                 </td>
               </tr>
@@ -497,18 +603,18 @@ export function KeychainView(): React.JSX.Element {
       <div className="row">
         <div className="section-title grow">Proxy</div>
         <button className="btn sm" onClick={() => setProxy({})}>
-          Proxy baru
+          {t.newProxy}
         </button>
       </div>
       {data.proxies.length === 0 ? (
-        <div className="dim small">Belum ada proxy.</div>
+        <div className="dim small">{t.noProxies}</div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Nama</th>
-              <th>Tipe</th>
-              <th>Tujuan</th>
+              <th>{t.name}</th>
+              <th>{t.type}</th>
+              <th>{t.target}</th>
               <th />
             </tr>
           </thead>
@@ -528,7 +634,7 @@ export function KeychainView(): React.JSX.Element {
                     className="btn sm ghost danger"
                     onClick={() => del('proxies', p.id, p.label)}
                   >
-                    Hapus
+                    {t.delete}
                   </button>
                 </td>
               </tr>

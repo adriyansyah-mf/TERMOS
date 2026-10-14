@@ -4,6 +4,22 @@ import { sha256 } from '@noble/hashes/sha2'
 import { x25519 } from '@noble/curves/ed25519'
 import { randomBytes } from 'node:crypto'
 import { b64, openBytes, seal, unb64, type SealedBox } from './crypto'
+import { tr } from './i18n'
+
+const S = {
+  id: {
+    weakParams: 'Server memberi parameter kunci yang lemah atau tidak valid; login dibatalkan',
+    wrongPassword: 'Password akun salah atau data akun rusak',
+    invalidRecipient: 'Public key penerima tidak valid',
+    teamKeyCorrupt: 'Kunci tim rusak'
+  },
+  en: {
+    weakParams: 'The server offered weak or invalid key parameters; login aborted',
+    wrongPassword: 'Wrong account password or corrupt account data',
+    invalidRecipient: "Recipient's public key is invalid",
+    teamKeyCorrupt: 'Team key is corrupt'
+  }
+}
 
 /**
  * Account crypto for the self-hosted sync server (same idea as Bitwarden):
@@ -48,7 +64,7 @@ export async function deriveAccountKeys(
     !(kdf.p >= 1 && kdf.p <= 8) ||
     unb64(kdf.salt ?? '').length !== 16
   )
-    throw new Error('Server memberi parameter kunci yang lemah atau tidak valid; login dibatalkan')
+    throw new Error(tr(S).weakParams)
   const master = await argon2idAsync(password, unb64(kdf.salt), {
     m: kdf.m,
     t: kdf.t,
@@ -83,7 +99,7 @@ export function unwrap(key: Uint8Array, box: SealedBox, label: WrapLabel): Uint8
     if (out.length !== 32) throw new Error()
     return out
   } catch {
-    throw new Error('Password akun salah atau data akun rusak')
+    throw new Error(tr(S).wrongPassword)
   }
 }
 
@@ -97,7 +113,7 @@ const SEAL_AAD = 'termos-teamkey-v1'
 /** Anonymous sealed box: anyone with the recipient's public key can seal, only they can open. */
 export function sealTo(recipientPublicKey: string, data: Uint8Array): SealedToKey {
   const recipient = unb64(recipientPublicKey)
-  if (recipient.length !== 32) throw new Error('Public key penerima tidak valid')
+  if (recipient.length !== 32) throw new Error(tr(S).invalidRecipient)
   const eph = x25519.utils.randomPrivateKey()
   const epk = x25519.getPublicKey(eph)
   const key = sealKey(x25519.getSharedSecret(eph, recipient), epk, recipient)
@@ -106,11 +122,11 @@ export function sealTo(recipientPublicKey: string, data: Uint8Array): SealedToKe
 
 export function openSealed(privateKey: Uint8Array, box: SealedToKey): Uint8Array {
   const epk = unb64(box.epk)
-  if (epk.length !== 32) throw new Error('Kunci tim rusak')
+  if (epk.length !== 32) throw new Error(tr(S).teamKeyCorrupt)
   const self = x25519.getPublicKey(privateKey)
   const key = sealKey(x25519.getSharedSecret(privateKey, epk), epk, self)
   const out = openBytes(key, box, SEAL_AAD)
-  if (out.length !== 32) throw new Error('Kunci tim rusak')
+  if (out.length !== 32) throw new Error(tr(S).teamKeyCorrupt)
   return out
 }
 

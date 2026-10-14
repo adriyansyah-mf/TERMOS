@@ -91,6 +91,7 @@ Termos jalan di Linux dan Windows. Server sync-nya (opsional) jalan di Docker.
 - Opsional: buka vault lewat keychain sistem (gnome-keyring/KWallet/Windows)
 - Kunci otomatis setelah tidak dipakai (default 15 menit) dan saat komputer tidur atau layar dikunci
 - Verifikasi host key SSH; peringatan kalau host key berubah
+- Bahasa antarmuka bisa diganti di Settings: Bahasa Indonesia atau English (tersimpan di `prefs.json`, berlaku juga di layar kunci)
 
 ### Sync dan tim (butuh server sendiri)
 
@@ -258,7 +259,7 @@ Isinya:
 - `quick-unlock.bin`: kunci vault yang dibungkus keychain sistem (hanya kalau fitur itu dinyalakan).
 - `logs/`: log sesi (hanya untuk host yang mengaktifkannya).
 
-Backup cukup dengan menyalin `vault.json`. File itu tidak bisa dibuka tanpa master password, jadi aman disimpan di cloud, tapi jangan sampai lupa password-nya.
+Pilihan bahasa antarmuka (`id`/`en`) disimpan di `prefs.json` satu folder di atas folder `data/`; tidak sensitif dan tidak perlu di-backup. Backup cukup dengan menyalin `vault.json`. File itu tidak bisa dibuka tanpa master password, jadi aman disimpan di cloud, tapi jangan sampai lupa password-nya.
 
 ## Keamanan
 

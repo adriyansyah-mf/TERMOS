@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore, type View } from './store'
+import { fmt, useT } from './i18n'
 import { LockScreen } from './components/LockScreen'
 import { SessionRequests, Toasts } from './components/SessionRequests'
 import { TermTab } from './components/TermTab'
@@ -13,17 +14,56 @@ import { ProxmoxView } from './views/ProxmoxView'
 import { HistoryView, KnownHostsView, SettingsView } from './views/SmallViews'
 import { SyncView } from './views/SyncView'
 
+const S = {
+  id: {
+    hosts: 'Hosts',
+    keychain: 'Keychain',
+    snippets: 'Snippets',
+    forwards: 'Port forwarding',
+    proxmox: 'Proxmox',
+    knownHosts: 'Known hosts',
+    history: 'Riwayat',
+    sync: 'Sync & tim',
+    settings: 'Settings',
+    menu: 'Menu',
+    local: 'Lokal',
+    closeTab: 'Tutup %s',
+    closeTabHint: 'Tutup (Ctrl+Shift+W)',
+    newSession: 'Sesi baru',
+    newSessionHint: 'Sesi baru (Ctrl+K)',
+    quickConnect: 'Quick connect'
+  },
+  en: {
+    hosts: 'Hosts',
+    keychain: 'Keychain',
+    snippets: 'Snippets',
+    forwards: 'Port forwarding',
+    proxmox: 'Proxmox',
+    knownHosts: 'Known hosts',
+    history: 'History',
+    sync: 'Sync & teams',
+    settings: 'Settings',
+    menu: 'Menu',
+    local: 'Local',
+    closeTab: 'Close %s',
+    closeTabHint: 'Close (Ctrl+Shift+W)',
+    newSession: 'New session',
+    newSessionHint: 'New session (Ctrl+K)',
+    quickConnect: 'Quick connect'
+  }
+}
+
 // Order matters: Ctrl+1..9 follows this list.
-const NAV: { view: View; label: string }[] = [
-  { view: 'hosts', label: 'Hosts' },
-  { view: 'keychain', label: 'Keychain' },
-  { view: 'snippets', label: 'Snippets' },
-  { view: 'forwards', label: 'Port forwarding' },
-  { view: 'proxmox', label: 'Proxmox' },
-  { view: 'knownHosts', label: 'Known hosts' },
-  { view: 'history', label: 'Riwayat' },
-  { view: 'sync', label: 'Sync & tim' },
-  { view: 'settings', label: 'Settings' }
+const NAV: View[] = [
+  'hosts',
+  'keychain',
+  'snippets',
+  'forwards',
+  'proxmox',
+  'knownHosts',
+  'history',
+  'sync',
+  'settings'
 ]
 
 function CurrentView({ view }: { view: View }): React.JSX.Element {
@@ -49,40 +89,36 @@ function CurrentView({ view }: { view: View }): React.JSX.Element {
   }
 }
 
-function NavButton({
-  item,
-  index
-}: {
-  item: (typeof NAV)[number]
-  index: number
-}): React.JSX.Element {
-  const active = useStore((s) => s.activeTab === null && s.view === item.view)
+function NavButton({ item, index }: { item: View; index: number }): React.JSX.Element {
+  const t = useT(S)
+  const active = useStore((s) => s.activeTab === null && s.view === item)
   return (
     <button
       className={'nav-item' + (active ? ' active' : '')}
       aria-current={active ? 'page' : undefined}
-      onClick={() => useStore.getState().setView(item.view)}
+      onClick={() => useStore.getState().setView(item)}
     >
-      {item.label}
+      {t[item]}
       <kbd>Ctrl {index + 1}</kbd>
     </button>
   )
 }
 
 function Workspace(): React.JSX.Element {
+  const t = useT(S)
   const view = useStore((s) => s.view)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
   const { setView, setActiveTab, closeTab, openSession } = useStore.getState()
   const [quick, setQuick] = useState(false)
-  const viewLabel = NAV.find((n) => n.view === view)?.label ?? 'Hosts'
+  const viewLabel = t[view]
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const { tabs, activeTab } = useStore.getState()
       if (e.ctrlKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
         e.preventDefault()
-        setView(NAV[Number(e.code.slice(5)) - 1].view)
+        setView(NAV[Number(e.code.slice(5)) - 1])
       } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setQuick(true)
@@ -90,7 +126,7 @@ function Workspace(): React.JSX.Element {
         e.preventDefault()
         void openSession({
           kind: 'adhoc',
-          host: { label: 'Lokal', protocol: 'local', address: '' }
+          host: { label: S[useStore.getState().lang].local, protocol: 'local', address: '' }
         })
       } else if (e.ctrlKey && e.shiftKey && e.code === 'KeyW' && activeTab) {
         e.preventDefault()
@@ -108,10 +144,10 @@ function Workspace(): React.JSX.Element {
 
   return (
     <div className="app">
-      <nav className="sidebar" aria-label="Menu">
+      <nav className="sidebar" aria-label={t.menu}>
         <div className="wordmark">Termos</div>
         {NAV.slice(0, -1).map((n, i) => (
-          <NavButton key={n.view} item={n} index={i} />
+          <NavButton key={n} item={n} index={i} />
         ))}
         <div className="nav-spacer" />
         <NavButton item={NAV[NAV.length - 1]} index={NAV.length - 1} />
@@ -128,29 +164,29 @@ function Workspace(): React.JSX.Element {
               <span className="label">{viewLabel}</span>
             </button>
           </div>
-          {tabs.map((t) => {
-            const p = t.panes[t.focused] ?? t.panes[0]
+          {tabs.map((tab) => {
+            const p = tab.panes[tab.focused] ?? tab.panes[0]
             return (
-              <div key={t.id} className={'tab' + (activeTab === t.id ? ' active' : '')}>
+              <div key={tab.id} className={'tab' + (activeTab === tab.id ? ' active' : '')}>
                 <button
                   className="tab-main"
                   role="tab"
-                  aria-selected={activeTab === t.id}
-                  title={t.panes.map((x) => x.label).join(' | ')}
-                  onClick={() => setActiveTab(t.id)}
-                  onAuxClick={(e) => e.button === 1 && closeTab(t.id)}
+                  aria-selected={activeTab === tab.id}
+                  title={tab.panes.map((x) => x.label).join(' | ')}
+                  onClick={() => setActiveTab(tab.id)}
+                  onAuxClick={(e) => e.button === 1 && closeTab(tab.id)}
                 >
                   <span className={'dot ' + p.status} aria-label={p.status} />
                   <span className="label">
                     {p.label}
-                    {t.panes.length > 1 ? ` +${t.panes.length - 1}` : ''}
+                    {tab.panes.length > 1 ? ` +${tab.panes.length - 1}` : ''}
                   </span>
                 </button>
                 <button
                   className="tab-close"
-                  aria-label={`Tutup ${p.label}`}
-                  title="Tutup (Ctrl+Shift+W)"
-                  onClick={() => closeTab(t.id)}
+                  aria-label={fmt(t.closeTab, p.label)}
+                  title={t.closeTabHint}
+                  onClick={() => closeTab(tab.id)}
                 >
                   ✕
                 </button>
@@ -158,8 +194,8 @@ function Workspace(): React.JSX.Element {
             )
           })}
           <div className="tab">
-            <button className="tab-main" title="Sesi baru (Ctrl+K)" onClick={() => setQuick(true)}>
-              Sesi baru
+            <button className="tab-main" title={t.newSessionHint} onClick={() => setQuick(true)}>
+              {t.newSession}
             </button>
           </div>
         </div>
@@ -173,7 +209,7 @@ function Workspace(): React.JSX.Element {
       </main>
       {quick && (
         <HostPicker
-          title="Quick connect"
+          title={t.quickConnect}
           onClose={() => setQuick(false)}
           onPick={(h) => {
             setQuick(false)

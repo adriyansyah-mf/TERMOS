@@ -1,6 +1,12 @@
 import { argon2idAsync } from '@noble/hashes/argon2'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha'
 import { randomBytes } from 'node:crypto'
+import { tr } from './i18n'
+
+const S = {
+  id: { corruptData: 'Data terenkripsi rusak' },
+  en: { corruptData: 'Encrypted data is corrupt' }
+}
 
 export interface KdfParams {
   alg: 'argon2id'
@@ -47,9 +53,9 @@ export function seal(key: Uint8Array, plaintext: string | Uint8Array, aad?: stri
 
 export function openBytes(key: Uint8Array, box: SealedBox, aad?: string): Uint8Array {
   if (typeof box?.nonce !== 'string' || typeof box?.ct !== 'string')
-    throw new Error('Data terenkripsi rusak')
+    throw new Error(tr(S).corruptData)
   const nonce = unb64(box.nonce)
-  if (nonce.length !== 24) throw new Error('Data terenkripsi rusak')
+  if (nonce.length !== 24) throw new Error(tr(S).corruptData)
   return xchacha20poly1305(key, nonce, aad === undefined ? undefined : enc(aad)).decrypt(
     unb64(box.ct)
   )

@@ -1,7 +1,23 @@
 import { useMemo, useState } from 'react'
 import type { Host } from '../../../shared/types'
+import { fmt, useT } from '../i18n'
 import { useStore } from '../store'
 import { Modal } from './ui'
+
+const S = {
+  id: {
+    searchAdhoc: 'Cari host, atau ketik user@alamat:port lalu Enter',
+    search: 'Cari host',
+    adhocEnter: 'Tekan Enter untuk konek langsung ke %s',
+    noHosts: 'Tidak ada host'
+  },
+  en: {
+    searchAdhoc: 'Search hosts, or type user@host:port and press Enter',
+    search: 'Search hosts',
+    adhocEnter: 'Press Enter to connect directly to %s',
+    noHosts: 'No hosts'
+  }
+}
 
 /** Searchable host list. Typing user@host:port and pressing Enter connects ad hoc. */
 export function HostPicker(props: {
@@ -10,6 +26,7 @@ export function HostPicker(props: {
   onAdhoc?(spec: { address: string; username?: string; port?: number }): void
   onClose(): void
 }): React.JSX.Element {
+  const t = useT(S)
   const hosts = useStore((s) => s.data?.hosts ?? [])
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -21,7 +38,7 @@ export function HostPicker(props: {
           !needle ||
           h.label.toLowerCase().includes(needle) ||
           h.address.toLowerCase().includes(needle) ||
-          h.tags.some((t) => t.toLowerCase().includes(needle))
+          h.tags.some((tag) => tag.toLowerCase().includes(needle))
       )
       .sort((a, b) => (b.lastConnectedAt ?? 0) - (a.lastConnectedAt ?? 0))
   }, [hosts, q])
@@ -38,9 +55,7 @@ export function HostPicker(props: {
       <input
         className="input"
         autoFocus
-        placeholder={
-          props.onAdhoc ? 'Cari host, atau ketik user@alamat:port lalu Enter' : 'Cari host'
-        }
+        placeholder={props.onAdhoc ? t.searchAdhoc : t.search}
         value={q}
         onChange={(e) => {
           setQ(e.target.value)
@@ -73,9 +88,7 @@ export function HostPicker(props: {
         ))}
         {!list.length && (
           <div className="dim small" style={{ padding: 10 }}>
-            {props.onAdhoc && q.trim()
-              ? 'Tekan Enter untuk konek langsung ke ' + q.trim()
-              : 'Tidak ada host'}
+            {props.onAdhoc && q.trim() ? fmt(t.adhocEnter, q.trim()) : t.noHosts}
           </div>
         )}
       </div>

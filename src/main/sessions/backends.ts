@@ -12,6 +12,26 @@ import { proxmoxClient } from '../proxmox'
 import { joinShare, parseInvite } from '../sharing'
 import { vault } from '../vault'
 import { sessions, type Backend, type SessionContext } from './manager'
+import { fmt, tr } from '../i18n'
+
+const S = {
+  id: {
+    procDone: '\r\n\x1b[90m[proses selesai, kode %s]\x1b[0m\r\n',
+    proxmoxNotFound: 'Server Proxmox tidak ditemukan',
+    hostNotFound: 'Host tidak ditemukan',
+    session: 'Sesi',
+    shared: 'Sesi bersama',
+    unsupported: 'Jenis sesi ini belum didukung'
+  },
+  en: {
+    procDone: '\r\n\x1b[90m[process finished, code %s]\x1b[0m\r\n',
+    proxmoxNotFound: 'Proxmox server not found',
+    hostNotFound: 'Host not found',
+    session: 'Session',
+    shared: 'Shared session',
+    unsupported: 'This session type is not supported yet'
+  }
+}
 
 export interface OpenedSession {
   sessionId: string
@@ -113,7 +133,7 @@ function ptyBackend(
   proc.onData((d) => ctx.emitData(d))
   proc.onExit(({ exitCode }) => {
     cleanup?.()
-    ctx.emitData(`\r\n\x1b[90m[proses selesai, kode ${exitCode}]\x1b[0m\r\n`)
+    ctx.emitData(fmt(tr(S).procDone, String(exitCode)))
     ctx.setStatus('closed')
   })
   return {
@@ -384,7 +404,7 @@ async function proxmoxTarget(
   vmid?: number
 ): Promise<{ target: string | Partial<Host>; command?: string; label: string }> {
   const server = vault.find<ProxmoxServer>('proxmox', serverId)
-  if (!server) throw new Error('Server Proxmox tidak ditemukan')
+  if (!server) throw new Error(tr(S).proxmoxNotFound)
   let target: string | Partial<Host>
   if (server.sshHostId && vault.find('hosts', server.sshHostId)) {
     target = server.sshHostId
@@ -401,19 +421,19 @@ async function proxmoxTarget(
 
 export async function openSession(req: OpenSessionRequest): Promise<OpenedSession> {
   const { target, cols, rows } = req
-  let label = 'Sesi'
+  let label = tr(S).session
   let resolvedTarget: string | Partial<Host>
   let afterConnect: string | undefined
   let hostId: string | undefined
 
   if (target.kind === 'host') {
     const host = vault.find<Host>('hosts', target.hostId)
-    if (!host) throw new Error('Host tidak ditemukan')
+    if (!host) throw new Error(tr(S).hostNotFound)
     label = host.label
     hostId = host.id
     resolvedTarget = host.id
   } else if (target.kind === 'adhoc') {
-    label = target.host.label || target.host.address || 'Sesi'
+    label = target.host.label || target.host.address || tr(S).session
     resolvedTarget = target.host
   } else if (target.kind === 'proxmox') {
     const p = await proxmoxTarget(target.serverId, target.node, target.vmType, target.vmid)
@@ -422,7 +442,7 @@ export async function openSession(req: OpenSessionRequest): Promise<OpenedSessio
     afterConnect = p.command
   } else if (target.kind === 'multiplayer') {
     parseInvite(target.invite) // validate before opening a tab
-    const ctx = sessions.create('Sesi bersama')
+    const ctx = sessions.create(tr(S).shared)
     ctx.setStatus('connecting')
     joinShare(ctx, target.invite).then(
       (backend) => {
@@ -434,9 +454,9 @@ export async function openSession(req: OpenSessionRequest): Promise<OpenedSessio
         ctx.setStatus('error', err.message)
       }
     )
-    return { sessionId: ctx.id, label: 'Sesi bersama' }
+    return { sessionId: ctx.id, label: tr(S).shared }
   } else {
-    throw new Error('Jenis sesi ini belum didukung')
+    throw new Error(tr(S).unsupported)
   }
 
   const logSession = resolveHost(resolvedTarget).config.logSession ?? false

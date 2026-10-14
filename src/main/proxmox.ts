@@ -1,6 +1,12 @@
 import * as https from 'node:https'
 import * as tls from 'node:tls'
 import type { ProxmoxServer, PveResource } from '../shared/types'
+import { tr } from './i18n'
+
+const S = {
+  id: { probeTimeout: 'Timeout saat menghubungi server' },
+  en: { probeTimeout: 'Timeout contacting server' }
+}
 
 export type GuestType = 'qemu' | 'lxc'
 export type GuestAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'suspend' | 'resume'
@@ -68,7 +74,7 @@ export function probeCertificate(
     })
     socket.setTimeout(10000, () => {
       socket.destroy()
-      reject(new Error('Timeout saat menghubungi server'))
+      reject(new Error(tr(S).probeTimeout))
     })
     socket.once('secureConnect', () => {
       const cert = socket.getPeerCertificate()

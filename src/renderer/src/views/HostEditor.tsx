@@ -6,6 +6,124 @@ import { useStore } from '../store'
 import { THEMES } from '../themes'
 import { Check, Field, Modal } from '../components/ui'
 import { VaultSelect } from '../components/VaultSelect'
+import { fmt, useT } from '../i18n'
+
+const S = {
+  id: {
+    inheritedFrom: 'Diwarisi dari grup',
+    username: 'Username',
+    port: 'Port',
+    password: 'Password',
+    sshKey: 'SSH key',
+    none: '(tidak ada)',
+    identity: 'Identity (user + password/key tersimpan)',
+    jumpHost: 'Jump host (urutan dari yang pertama)',
+    jumpHostHint: 'Koneksi lewat host-host ini dulu (ProxyJump).',
+    addJumpHost: '+ tambah jump host',
+    proxy: 'Proxy',
+    direct: '(langsung)',
+    startupSnippet: 'Snippet saat login',
+    sshEngine: 'Engine SSH',
+    sshEngineHint: 'OpenSSH sistem diperlukan untuk sertifikat SSH dan key FIDO2/YubiKey.',
+    engineBuiltin: 'Bawaan Termos',
+    engineOpenSsh: 'OpenSSH sistem (ssh)',
+    moshCommand: 'Perintah mosh',
+    moshCommandHint: 'Default: mosh',
+    useAgent: 'Pakai SSH agent',
+    agentForwarding: 'Agent forwarding',
+    autoForward: 'Port forwarding otomatis saat terhubung',
+    noForwardRules: 'Belum ada aturan untuk host ini (buat di menu Port Forwarding).',
+    envVar: 'Environment variable',
+    envVarHint: 'Butuh AcceptEnv di server untuk engine bawaan.',
+    envName: 'NAMA',
+    envValue: 'nilai',
+    addVariable: '+ Variabel',
+    theme: 'Tema terminal',
+    defaultOption: '(default)',
+    fontSize: 'Ukuran font',
+    charset: 'Charset',
+    keepalive: 'Keepalive (detik)',
+    connTimeout: 'Timeout koneksi (detik)',
+    logSession: 'Simpan log sesi ke file',
+    editHostTitle: 'Edit %s',
+    newHost: 'Host baru',
+    cancel: 'Batal',
+    save: 'Simpan',
+    name: 'Nama',
+    protocol: 'Protokol',
+    localTerminal: 'Terminal lokal',
+    serialPort: 'Port serial',
+    baudRate: 'Baud rate',
+    address: 'Alamat (IP atau hostname)',
+    group: 'Grup',
+    noGroup: '(tanpa grup)',
+    tags: 'Tag (pisahkan dengan koma)',
+    connection: 'Koneksi',
+    editGroupTitle: 'Edit grup %s',
+    newGroup: 'Grup baru',
+    groupName: 'Nama grup',
+    parent: 'Induk',
+    groupInheritHint:
+      'Pengaturan di bawah dipakai oleh semua host di grup ini yang tidak mengisinya sendiri.'
+  },
+  en: {
+    inheritedFrom: 'Inherited from group',
+    username: 'Username',
+    port: 'Port',
+    password: 'Password',
+    sshKey: 'SSH key',
+    none: '(none)',
+    identity: 'Identity (saved user + password/key)',
+    jumpHost: 'Jump host (in order of use)',
+    jumpHostHint: 'Connect through these hosts first (ProxyJump).',
+    addJumpHost: '+ Add jump host',
+    proxy: 'Proxy',
+    direct: '(direct)',
+    startupSnippet: 'Snippet on login',
+    sshEngine: 'SSH engine',
+    sshEngineHint: 'System OpenSSH is required for SSH certificates and FIDO2/YubiKey keys.',
+    engineBuiltin: 'Termos built-in',
+    engineOpenSsh: 'System OpenSSH (ssh)',
+    moshCommand: 'Mosh command',
+    moshCommandHint: 'Default: mosh',
+    useAgent: 'Use SSH agent',
+    agentForwarding: 'Agent forwarding',
+    autoForward: 'Automatic port forwarding when connected',
+    noForwardRules: 'No rules for this host yet (create them in the Port Forwarding menu).',
+    envVar: 'Environment variable',
+    envVarHint: 'Requires AcceptEnv on the server for the built-in engine.',
+    envName: 'NAME',
+    envValue: 'value',
+    addVariable: '+ Variable',
+    theme: 'Terminal theme',
+    defaultOption: '(default)',
+    fontSize: 'Font size',
+    charset: 'Charset',
+    keepalive: 'Keepalive (seconds)',
+    connTimeout: 'Connection timeout (seconds)',
+    logSession: 'Save session log to file',
+    editHostTitle: 'Edit %s',
+    newHost: 'New host',
+    cancel: 'Cancel',
+    save: 'Save',
+    name: 'Name',
+    protocol: 'Protocol',
+    localTerminal: 'Local terminal',
+    serialPort: 'Serial port',
+    baudRate: 'Baud rate',
+    address: 'Address (IP or hostname)',
+    group: 'Group',
+    noGroup: '(no group)',
+    tags: 'Tags (comma-separated)',
+    connection: 'Connection',
+    editGroupTitle: 'Edit group %s',
+    newGroup: 'New group',
+    groupName: 'Group name',
+    parent: 'Parent',
+    groupInheritHint:
+      'The settings below apply to every host in this group that does not set its own.'
+  }
+}
 
 const DEFAULT_PORT: Record<Protocol, number | undefined> = {
   ssh: 22,
@@ -23,6 +141,7 @@ function Inherit<K extends keyof ConnConfig>(props: {
   groups: Group[]
   k: K
 }): React.JSX.Element | null {
+  const t = useT(S)
   const own = props.host.config[props.k]
   if (own !== undefined && own !== '') return null
   const r = resolveConfigValue({ config: {}, groupId: props.host.groupId }, props.groups, props.k)
@@ -31,7 +150,7 @@ function Inherit<K extends keyof ConnConfig>(props: {
   const v = props.k === 'password' ? '••••' : String(r.value)
   return (
     <span>
-      Diwarisi dari grup <b>{g?.label}</b>: {v}
+      {t.inheritedFrom} <b>{g?.label}</b>: {v}
     </span>
   )
 }
@@ -45,6 +164,7 @@ function ConnFields(props: {
   selfId?: string
 }): React.JSX.Element {
   const data = useStore((s) => s.data)!
+  const t = useT(S)
   const c = props.value
   const set = (patch: Partial<ConnConfig>): void => props.onChange({ ...c, ...patch })
   const inh = (k: keyof ConnConfig): React.JSX.Element | null =>
@@ -55,14 +175,14 @@ function ConnFields(props: {
   return (
     <>
       <div className="grid-2">
-        <Field label="Username" hint={inh('username')}>
+        <Field label={t.username} hint={inh('username')}>
           <input
             className="input"
             value={c.username ?? ''}
             onChange={(e) => set({ username: e.target.value || undefined })}
           />
         </Field>
-        <Field label="Port" hint={inh('port')}>
+        <Field label={t.port} hint={inh('port')}>
           <input
             className="input"
             inputMode="numeric"
@@ -75,7 +195,7 @@ function ConnFields(props: {
       {sshLike && (
         <>
           <div className="grid-2">
-            <Field label="Password" hint={inh('password')}>
+            <Field label={t.password} hint={inh('password')}>
               <input
                 className="input"
                 type="password"
@@ -84,13 +204,13 @@ function ConnFields(props: {
                 onChange={(e) => set({ password: e.target.value || undefined })}
               />
             </Field>
-            <Field label="SSH key" hint={inh('keyId')}>
+            <Field label={t.sshKey} hint={inh('keyId')}>
               <select
                 className="select"
                 value={c.keyId ?? ''}
                 onChange={(e) => set({ keyId: e.target.value || undefined })}
               >
-                <option value="">(tidak ada)</option>
+                <option value="">{t.none}</option>
                 {data.keys.map((k) => (
                   <option key={k.id} value={k.id}>
                     {k.label} ({k.keyType})
@@ -99,13 +219,13 @@ function ConnFields(props: {
               </select>
             </Field>
           </div>
-          <Field label="Identity (user + password/key tersimpan)" hint={inh('identityId')}>
+          <Field label={t.identity} hint={inh('identityId')}>
             <select
               className="select"
               value={c.identityId ?? ''}
               onChange={(e) => set({ identityId: e.target.value || undefined })}
             >
-              <option value="">(tidak ada)</option>
+              <option value="">{t.none}</option>
               {data.identities.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.label} ({i.username})
@@ -113,10 +233,7 @@ function ConnFields(props: {
               ))}
             </select>
           </Field>
-          <Field
-            label="Jump host (urutan dari yang pertama)"
-            hint={inh('hostChain') ?? 'Koneksi lewat host-host ini dulu (ProxyJump).'}
-          >
+          <Field label={t.jumpHost} hint={inh('hostChain') ?? t.jumpHostHint}>
             <div className="row wrap">
               {(c.hostChain ?? []).map((id, i) => {
                 const h = data.hosts.find((x) => x.id === id)
@@ -140,7 +257,7 @@ function ConnFields(props: {
                   e.target.value && set({ hostChain: [...(c.hostChain ?? []), e.target.value] })
                 }
               >
-                <option value="">+ tambah jump host</option>
+                <option value="">{t.addJumpHost}</option>
                 {data.hosts
                   .filter((h) => h.id !== props.selfId && h.protocol === 'ssh')
                   .map((h) => (
@@ -152,13 +269,13 @@ function ConnFields(props: {
             </div>
           </Field>
           <div className="grid-2">
-            <Field label="Proxy" hint={inh('proxyId')}>
+            <Field label={t.proxy} hint={inh('proxyId')}>
               <select
                 className="select"
                 value={c.proxyId ?? ''}
                 onChange={(e) => set({ proxyId: e.target.value || undefined })}
               >
-                <option value="">(langsung)</option>
+                <option value="">{t.direct}</option>
                 {data.proxies.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label} ({p.type})
@@ -166,13 +283,13 @@ function ConnFields(props: {
                 ))}
               </select>
             </Field>
-            <Field label="Snippet saat login" hint={inh('startupSnippetId')}>
+            <Field label={t.startupSnippet} hint={inh('startupSnippetId')}>
               <select
                 className="select"
                 value={c.startupSnippetId ?? ''}
                 onChange={(e) => set({ startupSnippetId: e.target.value || undefined })}
               >
-                <option value="">(tidak ada)</option>
+                <option value="">{t.none}</option>
                 {data.snippets.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}
@@ -182,10 +299,7 @@ function ConnFields(props: {
             </Field>
           </div>
           {proto === 'ssh' && (
-            <Field
-              label="Engine SSH"
-              hint="OpenSSH sistem diperlukan untuk sertifikat SSH dan key FIDO2/YubiKey."
-            >
+            <Field label={t.sshEngine} hint={t.sshEngineHint}>
               <select
                 className="select"
                 value={c.engine ?? 'builtin'}
@@ -193,13 +307,13 @@ function ConnFields(props: {
                   set({ engine: e.target.value === 'openssh' ? 'openssh' : undefined })
                 }
               >
-                <option value="builtin">Bawaan Termos</option>
-                <option value="openssh">OpenSSH sistem (ssh)</option>
+                <option value="builtin">{t.engineBuiltin}</option>
+                <option value="openssh">{t.engineOpenSsh}</option>
               </select>
             </Field>
           )}
           {proto === 'mosh' && (
-            <Field label="Perintah mosh" hint="Default: mosh">
+            <Field label={t.moshCommand} hint={t.moshCommandHint}>
               <input
                 className="input"
                 value={c.moshCommand ?? ''}
@@ -209,24 +323,20 @@ function ConnFields(props: {
           )}
           <div className="grid-2">
             <Check
-              label="Pakai SSH agent"
+              label={t.useAgent}
               checked={c.useAgent !== false}
               onChange={(v) => set({ useAgent: v ? undefined : false })}
             />
             <Check
-              label="Agent forwarding"
+              label={t.agentForwarding}
               checked={!!c.agentForwarding}
               onChange={(v) => set({ agentForwarding: v || undefined })}
             />
           </div>
-          <Field label="Port forwarding otomatis saat terhubung">
+          <Field label={t.autoForward}>
             <div className="row wrap">
               {data.forwardRules.filter((r) => !props.selfId || r.hostId === props.selfId)
-                .length === 0 && (
-                <span className="dim small">
-                  Belum ada aturan untuk host ini (buat di menu Port Forwarding).
-                </span>
-              )}
+                .length === 0 && <span className="dim small">{t.noForwardRules}</span>}
               {data.forwardRules
                 .filter((r) => !props.selfId || r.hostId === props.selfId)
                 .map((r) => (
@@ -245,12 +355,12 @@ function ConnFields(props: {
                 ))}
             </div>
           </Field>
-          <Field label="Environment variable" hint="Butuh AcceptEnv di server untuk engine bawaan.">
+          <Field label={t.envVar} hint={t.envVarHint}>
             {(c.env ?? []).map((e, i) => (
               <div className="row" key={i} style={{ marginBottom: 6 }}>
                 <input
                   className="input mono"
-                  placeholder="NAMA"
+                  placeholder={t.envName}
                   value={e.key}
                   onChange={(ev) =>
                     set({
@@ -260,7 +370,7 @@ function ConnFields(props: {
                 />
                 <input
                   className="input mono"
-                  placeholder="nilai"
+                  placeholder={t.envValue}
                   value={e.value}
                   onChange={(ev) =>
                     set({
@@ -281,28 +391,28 @@ function ConnFields(props: {
                 className="btn sm"
                 onClick={() => set({ env: [...(c.env ?? []), { key: '', value: '' }] })}
               >
-                + Variabel
+                {t.addVariable}
               </button>
             </div>
           </Field>
         </>
       )}
       <div className="grid-3">
-        <Field label="Tema terminal" hint={inh('theme')}>
+        <Field label={t.theme} hint={inh('theme')}>
           <select
             className="select"
             value={c.theme ?? ''}
             onChange={(e) => set({ theme: e.target.value || undefined })}
           >
-            <option value="">(default)</option>
-            {Object.entries(THEMES).map(([k, t]) => (
+            <option value="">{t.defaultOption}</option>
+            {Object.entries(THEMES).map(([k, th]) => (
               <option key={k} value={k}>
-                {t.label}
+                {th.label}
               </option>
             ))}
           </select>
         </Field>
-        <Field label="Ukuran font">
+        <Field label={t.fontSize}>
           <input
             className="input"
             inputMode="numeric"
@@ -310,7 +420,7 @@ function ConnFields(props: {
             onChange={(e) => set({ fontSize: num(e.target.value) })}
           />
         </Field>
-        <Field label="Charset">
+        <Field label={t.charset}>
           <input
             className="input"
             placeholder="utf-8"
@@ -321,17 +431,19 @@ function ConnFields(props: {
       </div>
       {sshLike && (
         <div className="grid-2">
-          <Field label="Keepalive (detik)">
+          <Field label={t.keepalive}>
             <input
               className="input"
+              inputMode="numeric"
               placeholder="30"
               value={c.keepAliveInterval ?? ''}
               onChange={(e) => set({ keepAliveInterval: num(e.target.value) })}
             />
           </Field>
-          <Field label="Timeout koneksi (detik)">
+          <Field label={t.connTimeout}>
             <input
               className="input"
+              inputMode="numeric"
               placeholder="20"
               value={c.timeout ?? ''}
               onChange={(e) => set({ timeout: num(e.target.value) })}
@@ -340,7 +452,7 @@ function ConnFields(props: {
         </div>
       )}
       <Check
-        label="Simpan log sesi ke file"
+        label={t.logSession}
         checked={!!c.logSession}
         onChange={(v) => set({ logSession: v || undefined })}
       />
@@ -355,6 +467,7 @@ export function HostEditor(props: {
 }): React.JSX.Element {
   const data = useStore((s) => s.data)!
   const toast = useStore((s) => s.toast)
+  const t = useT(S)
   const [h, setH] = useState<Host>(
     () =>
       props.host ?? {
@@ -382,7 +495,7 @@ export function HostEditor(props: {
     try {
       const tags = tagText
         .split(',')
-        .map((t) => t.trim())
+        .map((tag) => tag.trim())
         .filter(Boolean)
       const address = h.protocol === 'serial' ? (h.serial?.path ?? h.address) : h.address.trim()
       await api.upsert<Host>('hosts', { ...h, label: h.label.trim(), address, tags })
@@ -395,21 +508,21 @@ export function HostEditor(props: {
   return (
     <Modal
       wide
-      title={props.host ? `Edit ${props.host.label}` : 'Host baru'}
+      title={props.host ? fmt(t.editHostTitle, props.host.label) : t.newHost}
       onClose={props.onClose}
       footer={
         <>
           <button className="btn" onClick={props.onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button className="btn primary" disabled={!valid} onClick={save}>
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Nama">
+        <Field label={t.name}>
           <input
             className="input"
             autoFocus
@@ -418,7 +531,7 @@ export function HostEditor(props: {
             placeholder="web-server-01"
           />
         </Field>
-        <Field label="Protokol">
+        <Field label={t.protocol}>
           <select
             className="select"
             value={h.protocol}
@@ -428,13 +541,13 @@ export function HostEditor(props: {
             <option value="mosh">Mosh</option>
             <option value="telnet">Telnet</option>
             <option value="serial">Serial</option>
-            <option value="local">Terminal lokal</option>
+            <option value="local">{t.localTerminal}</option>
           </select>
         </Field>
       </div>
       {h.protocol === 'serial' ? (
         <div className="grid-2">
-          <Field label="Port serial">
+          <Field label={t.serialPort}>
             <input
               className="input"
               list="serial-ports"
@@ -455,7 +568,7 @@ export function HostEditor(props: {
               ))}
             </datalist>
           </Field>
-          <Field label="Baud rate">
+          <Field label={t.baudRate}>
             <select
               className="select"
               value={h.serial?.baudRate ?? 9600}
@@ -474,7 +587,7 @@ export function HostEditor(props: {
         </div>
       ) : (
         needsAddress && (
-          <Field label="Alamat (IP atau hostname)">
+          <Field label={t.address}>
             <input
               className="input"
               value={h.address}
@@ -485,13 +598,13 @@ export function HostEditor(props: {
         )
       )}
       <div className="grid-2">
-        <Field label="Grup">
+        <Field label={t.group}>
           <select
             className="select"
             value={h.groupId ?? ''}
             onChange={(e) => setH({ ...h, groupId: e.target.value || undefined })}
           >
-            <option value="">(tanpa grup)</option>
+            <option value="">{t.noGroup}</option>
             {data.groups.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.label}
@@ -499,7 +612,7 @@ export function HostEditor(props: {
             ))}
           </select>
         </Field>
-        <Field label="Tag (pisahkan dengan koma)">
+        <Field label={t.tags}>
           <input
             className="input"
             value={tagText}
@@ -511,7 +624,7 @@ export function HostEditor(props: {
       <VaultSelect value={h.teamId} onChange={(teamId) => setH({ ...h, teamId })} />
       {h.protocol !== 'local' && h.protocol !== 'serial' && (
         <>
-          <div className="section-title">Koneksi</div>
+          <div className="section-title">{t.connection}</div>
           <ConnFields
             value={h.config}
             onChange={(config) => setH({ ...h, config })}
@@ -528,6 +641,7 @@ export function HostEditor(props: {
 export function GroupEditor(props: { group?: Group; onClose(): void }): React.JSX.Element {
   const data = useStore((s) => s.data)!
   const toast = useStore((s) => s.toast)
+  const t = useT(S)
   const [g, setG] = useState<Group>(
     () => props.group ?? { id: newId(), updatedAt: 0, label: '', config: {} }
   )
@@ -542,21 +656,21 @@ export function GroupEditor(props: { group?: Group; onClose(): void }): React.JS
   return (
     <Modal
       wide
-      title={props.group ? `Edit grup ${props.group.label}` : 'Grup baru'}
+      title={props.group ? fmt(t.editGroupTitle, props.group.label) : t.newGroup}
       onClose={props.onClose}
       footer={
         <>
           <button className="btn" onClick={props.onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button className="btn primary" disabled={!g.label.trim()} onClick={save}>
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Nama grup">
+        <Field label={t.groupName}>
           <input
             className="input"
             autoFocus
@@ -564,13 +678,13 @@ export function GroupEditor(props: { group?: Group; onClose(): void }): React.JS
             onChange={(e) => setG({ ...g, label: e.target.value })}
           />
         </Field>
-        <Field label="Induk">
+        <Field label={t.parent}>
           <select
             className="select"
             value={g.parentId ?? ''}
             onChange={(e) => setG({ ...g, parentId: e.target.value || undefined })}
           >
-            <option value="">(tidak ada)</option>
+            <option value="">{t.none}</option>
             {data.groups
               .filter((x) => x.id !== g.id)
               .map((x) => (
@@ -582,9 +696,7 @@ export function GroupEditor(props: { group?: Group; onClose(): void }): React.JS
         </Field>
       </div>
       <VaultSelect value={g.teamId} onChange={(teamId) => setG({ ...g, teamId })} />
-      <p className="dim small">
-        Pengaturan di bawah dipakai oleh semua host di grup ini yang tidak mengisinya sendiri.
-      </p>
+      <p className="dim small">{t.groupInheritHint}</p>
       <ConnFields value={g.config} onChange={(config) => setG({ ...g, config })} />
     </Modal>
   )

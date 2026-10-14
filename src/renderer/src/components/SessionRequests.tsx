@@ -1,36 +1,61 @@
 import { useState } from 'react'
+import { useT } from '../i18n'
 import { useStore, type PendingRequest } from '../store'
 import { Modal } from './ui'
 
+const S = {
+  id: {
+    hostKeyChanged: 'Host key berubah',
+    newHost: 'Host baru',
+    reject: 'Tolak',
+    replace: 'Ganti & lanjutkan',
+    trust: 'Percayai & lanjutkan',
+    changed:
+      'Fingerprint host ini berbeda dari yang tersimpan. Bisa jadi server diinstal ulang, atau ada yang menyadap koneksi (MITM). Jangan lanjutkan kalau tidak yakin.',
+    unknown:
+      'Termos belum pernah terhubung ke host ini. Cocokkan fingerprint-nya sebelum melanjutkan.',
+    cancel: 'Batal',
+    send: 'Kirim'
+  },
+  en: {
+    hostKeyChanged: 'Host key changed',
+    newHost: 'New host',
+    reject: 'Reject',
+    replace: 'Replace & continue',
+    trust: 'Trust & continue',
+    changed:
+      "This host's fingerprint differs from the stored one. The server may have been reinstalled, or the connection is being intercepted (MITM). Do not continue if you are unsure.",
+    unknown: 'Termos has never connected to this host. Verify the fingerprint before continuing.',
+    cancel: 'Cancel',
+    send: 'Send'
+  }
+}
+
 function HostKey({ r }: { r: Extract<PendingRequest, { type: 'hostkey' }> }): React.JSX.Element {
+  const t = useT(S)
   const answer = useStore((s) => s.answer)
   return (
     <Modal
-      title={r.changed ? 'Host key berubah' : 'Host baru'}
+      title={r.changed ? t.hostKeyChanged : t.newHost}
       onClose={() => answer(r.requestId, false)}
       footer={
         <>
           <button className="btn" onClick={() => answer(r.requestId, false)}>
-            Tolak
+            {t.reject}
           </button>
           <button
             className={'btn ' + (r.changed ? 'danger' : 'primary')}
             onClick={() => answer(r.requestId, true)}
           >
-            {r.changed ? 'Ganti & lanjutkan' : 'Percayai & lanjutkan'}
+            {r.changed ? t.replace : t.trust}
           </button>
         </>
       }
     >
       {r.changed ? (
-        <div className="alert error small">
-          Fingerprint host ini berbeda dari yang tersimpan. Bisa jadi server diinstal ulang, atau
-          ada yang menyadap koneksi (MITM). Jangan lanjutkan kalau tidak yakin.
-        </div>
+        <div className="alert error small">{t.changed}</div>
       ) : (
-        <p className="muted">
-          Termos belum pernah terhubung ke host ini. Cocokkan fingerprint-nya sebelum melanjutkan.
-        </p>
+        <p className="muted">{t.unknown}</p>
       )}
       <p className="small muted" style={{ marginBottom: 4 }}>
         {r.host}:{r.port} · {r.keyType}
@@ -41,6 +66,7 @@ function HostKey({ r }: { r: Extract<PendingRequest, { type: 'hostkey' }> }): Re
 }
 
 function Prompt({ r }: { r: Extract<PendingRequest, { type: 'prompt' }> }): React.JSX.Element {
+  const t = useT(S)
   const answer = useStore((s) => s.answer)
   const [values, setValues] = useState<string[]>(r.prompts.map(() => ''))
   const submit = (): void => answer(r.requestId, values)
@@ -51,10 +77,10 @@ function Prompt({ r }: { r: Extract<PendingRequest, { type: 'prompt' }> }): Reac
       footer={
         <>
           <button className="btn" onClick={() => answer(r.requestId, null)}>
-            Batal
+            {t.cancel}
           </button>
           <button className="btn primary" onClick={submit}>
-            Kirim
+            {t.send}
           </button>
         </>
       }

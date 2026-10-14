@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useT } from '../i18n'
 import { pop, useDialogs, type DialogReq } from '../lib'
+
+const S = {
+  id: {
+    cancel: 'Batal',
+    ok: 'OK'
+  },
+  en: {
+    cancel: 'Cancel',
+    ok: 'OK'
+  }
+}
 
 export function Modal(props: {
   title: ReactNode
@@ -72,6 +84,7 @@ export function Check(props: {
 }
 
 function PromptBody({ d }: { d: Extract<DialogReq, { kind: 'prompt' }> }): React.JSX.Element {
+  const t = useT(S)
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(d.fields.map((f) => [f.key, f.value ?? '']))
   )
@@ -88,10 +101,10 @@ function PromptBody({ d }: { d: Extract<DialogReq, { kind: 'prompt' }> }): React
       footer={
         <>
           <button className="btn" onClick={() => done(null)}>
-            Batal
+            {t.cancel}
           </button>
           <button className="btn primary" onClick={() => done(values)}>
-            {d.okLabel ?? 'OK'}
+            {d.okLabel ?? t.ok}
           </button>
         </>
       }
@@ -121,6 +134,7 @@ function PromptBody({ d }: { d: Extract<DialogReq, { kind: 'prompt' }> }): React
 }
 
 export function DialogHost(): React.JSX.Element | null {
+  const t = useT(S)
   const d = useDialogs((s) => s.stack[0])
   if (!d) return null
   if (d.kind === 'prompt') return <PromptBody key={d.title} d={d} />
@@ -135,14 +149,14 @@ export function DialogHost(): React.JSX.Element | null {
       footer={
         <>
           <button className="btn" onClick={() => done(false)}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className={'btn ' + (d.danger ? 'danger' : 'primary')}
             autoFocus
             onClick={() => done(true)}
           >
-            {d.okLabel ?? 'OK'}
+            {d.okLabel ?? t.ok}
           </button>
         </>
       }

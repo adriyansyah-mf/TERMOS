@@ -4,7 +4,19 @@ import { basename } from 'node:path'
 import { utils } from 'ssh2'
 import { newId } from '../shared/merge'
 import type { SshKey } from '../shared/types'
+import { fmt, tr } from './i18n'
 import { fingerprint } from './ssh/connect'
+
+const S = {
+  id: {
+    encrypted: 'Key ini terenkripsi; isi passphrase-nya',
+    invalid: 'Key tidak valid: %s'
+  },
+  en: {
+    encrypted: 'This key is encrypted; enter its passphrase',
+    invalid: 'Invalid key: %s'
+  }
+}
 
 export type KeyKind = 'ed25519' | 'rsa' | 'ecdsa'
 
@@ -38,8 +50,8 @@ export function keyFromPrivate(
   const parsed = utils.parseKey(privateKey, passphrase || undefined)
   if (parsed instanceof Error) {
     if (/encrypted|passphrase/i.test(parsed.message) && !passphrase)
-      throw new Error('Key ini terenkripsi; isi passphrase-nya')
-    throw new Error(`Key tidak valid: ${parsed.message}`)
+      throw new Error(tr(S).encrypted)
+    throw new Error(fmt(tr(S).invalid, parsed.message))
   }
   const key = Array.isArray(parsed) ? parsed[0] : parsed
   const pub = `${key.type} ${key.getPublicSSH().toString('base64')} ${label}`

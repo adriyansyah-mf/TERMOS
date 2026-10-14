@@ -5,11 +5,91 @@ import { useStore } from '../store'
 import { confirmDialog, promptOne, timeAgo } from '../lib'
 import { HostPicker } from '../components/HostPicker'
 import { GroupEditor, HostEditor } from './HostEditor'
+import { fmt, useT } from '../i18n'
 
 type SortKey = 'label' | 'address' | 'lastConnectedAt'
 
+const S = {
+  id: {
+    localAddress: 'terminal lokal',
+    removeHostTitle: 'Hapus host',
+    remove: 'Hapus',
+    removeHostQ: 'Hapus "%s"?',
+    removeGroupTitle: 'Hapus grup',
+    removeGroupQ: 'Hapus grup "%s"? %s host di dalamnya dipindah keluar grup.',
+    imported: 'Import ~/.ssh/config: %s host baru, %s diperbarui, %s key',
+    local: 'Lokal',
+    joinShared: 'Gabung sesi bersama',
+    joinSharedPrompt: 'Link dari rekan (https://server/share/…#kunci)',
+    hosts: 'Hosts',
+    searchPlaceholder: 'Cari nama, alamat, tag',
+    searchLabel: 'Cari host',
+    quickConnect: 'Quick connect',
+    newGroup: 'Grup baru',
+    newHost: 'Host baru',
+    allHosts: 'Semua host',
+    editGroup: 'Edit grup',
+    emptyVault:
+      'Vault ini belum berisi host. Tambahkan server pertama, ambil yang sudah ada di ~/.ssh/config, atau mulai dengan terminal lokal.',
+    importSsh: 'Import ~/.ssh/config',
+    localTerminal: 'Terminal lokal',
+    name: 'Nama',
+    address: 'Alamat',
+    protocol: 'Protokol',
+    tag: 'Tag',
+    lastUsed: 'Terakhir',
+    hostCount: '%s host',
+    edit: 'Edit',
+    connect: 'Hubungkan',
+    duplicate: 'Duplikat',
+    copySuffix: ' (salinan)',
+    noMatch: 'Tidak ada host yang cocok dengan "%s".',
+    groupEmpty: 'Grup ini masih kosong.',
+    rowHint: 'Klik dua kali atau tekan Enter pada baris untuk menghubungkan.',
+    rowAria: '%s, %s. Enter untuk menghubungkan'
+  },
+  en: {
+    localAddress: 'local terminal',
+    removeHostTitle: 'Remove host',
+    remove: 'Remove',
+    removeHostQ: 'Remove "%s"?',
+    removeGroupTitle: 'Remove group',
+    removeGroupQ: 'Remove group "%s"? Its %s hosts will be moved out of the group.',
+    imported: 'Imported ~/.ssh/config: %s new hosts, %s updated, %s keys',
+    local: 'Local',
+    joinShared: 'Join shared session',
+    joinSharedPrompt: 'Link from a teammate (https://server/share/…#key)',
+    hosts: 'Hosts',
+    searchPlaceholder: 'Search name, address, tags',
+    searchLabel: 'Search hosts',
+    quickConnect: 'Quick connect',
+    newGroup: 'New group',
+    newHost: 'New host',
+    allHosts: 'All hosts',
+    editGroup: 'Edit group',
+    emptyVault:
+      'This vault has no hosts yet. Add your first server, pull in existing ones from ~/.ssh/config, or start with a local terminal.',
+    importSsh: 'Import ~/.ssh/config',
+    localTerminal: 'Local terminal',
+    name: 'Name',
+    address: 'Address',
+    protocol: 'Protocol',
+    tag: 'Tags',
+    lastUsed: 'Last used',
+    hostCount: '%s hosts',
+    edit: 'Edit',
+    connect: 'Connect',
+    duplicate: 'Duplicate',
+    copySuffix: ' (copy)',
+    noMatch: 'No hosts match "%s".',
+    groupEmpty: 'This group is empty.',
+    rowHint: 'Double-click a row or press Enter to connect.',
+    rowAria: '%s, %s. Enter to connect'
+  }
+}
+
 function addressOf(h: Host): string {
-  if (h.protocol === 'local') return 'terminal lokal'
+  if (h.protocol === 'local') return S[useStore.getState().lang].localAddress
   if (h.protocol === 'serial')
     return `${h.serial?.path ?? h.address} @ ${h.serial?.baudRate ?? 9600}`
   const port = h.config.port ? `:${h.config.port}` : ''
@@ -19,6 +99,7 @@ function addressOf(h: Host): string {
 export function HostsView(): React.JSX.Element {
   const data = useStore((s) => s.data)!
   const { openSession, toast } = useStore.getState()
+  const t = useT(S)
   const [q, setQ] = useState('')
   const [groupId, setGroupId] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'label', desc: false })
@@ -34,7 +115,7 @@ export function HostsView(): React.JSX.Element {
       needle
         ? h.label.toLowerCase().includes(needle) ||
           h.address.toLowerCase().includes(needle) ||
-          h.tags.some((t) => t.toLowerCase().includes(needle))
+          h.tags.some((tag) => tag.toLowerCase().includes(needle))
         : (h.groupId ?? null) === groupId
     )
     const dir = sort.desc ? -1 : 1
@@ -49,7 +130,10 @@ export function HostsView(): React.JSX.Element {
 
   const removeHost = async (h: Host): Promise<void> => {
     if (
-      await confirmDialog('Hapus host', `Hapus "${h.label}"?`, { danger: true, okLabel: 'Hapus' })
+      await confirmDialog(t.removeHostTitle, fmt(t.removeHostQ, h.label), {
+        danger: true,
+        okLabel: t.remove
+      })
     )
       await api.remove('hosts', h.id)
   }
@@ -57,9 +141,9 @@ export function HostsView(): React.JSX.Element {
   const removeGroup = async (g: Group): Promise<void> => {
     const count = data.hosts.filter((h) => h.groupId === g.id).length
     const ok = await confirmDialog(
-      'Hapus grup',
-      `Hapus grup "${g.label}"? ${count} host di dalamnya dipindah keluar grup.`,
-      { danger: true, okLabel: 'Hapus' }
+      t.removeGroupTitle,
+      fmt(t.removeGroupQ, g.label, String(count)),
+      { danger: true, okLabel: t.remove }
     )
     if (!ok) return
     for (const h of data.hosts.filter((x) => x.groupId === g.id))
@@ -73,7 +157,7 @@ export function HostsView(): React.JSX.Element {
   const importConfig = async (): Promise<void> => {
     try {
       const r = await api.importSshConfig()
-      toast(`Import ~/.ssh/config: ${r.added} host baru, ${r.updated} diperbarui, ${r.keys} key`)
+      toast(fmt(t.imported, String(r.added), String(r.updated), String(r.keys)))
       for (const s of r.skipped) toast(s, 'error')
     } catch (e) {
       toast(errMsg(e), 'error')
@@ -81,13 +165,13 @@ export function HostsView(): React.JSX.Element {
   }
 
   const openLocal = (): void =>
-    void openSession({ kind: 'adhoc', host: { label: 'Lokal', protocol: 'local', address: '' } })
+    void openSession({
+      kind: 'adhoc',
+      host: { label: t.local, protocol: 'local', address: '' }
+    })
 
   const joinShared = async (): Promise<void> => {
-    const invite = await promptOne(
-      'Gabung sesi bersama',
-      'Link dari rekan (https://server/share/…#kunci)'
-    )
+    const invite = await promptOne(t.joinShared, t.joinSharedPrompt)
     if (invite?.trim()) void openSession({ kind: 'multiplayer', invite: invite.trim() })
   }
 
@@ -110,30 +194,30 @@ export function HostsView(): React.JSX.Element {
   return (
     <div className="view">
       <div className="view-head">
-        <h1>Hosts</h1>
+        <h1>{t.hosts}</h1>
         <span className="grow" />
         <input
           className="input search"
-          placeholder="Cari nama, alamat, tag"
-          aria-label="Cari host"
+          placeholder={t.searchPlaceholder}
+          aria-label={t.searchLabel}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
         <button className="btn" onClick={() => setQuick(true)} title="Ctrl+K">
-          Quick connect
+          {t.quickConnect}
         </button>
         <button className="btn" onClick={() => setEditingGroup({})}>
-          Grup baru
+          {t.newGroup}
         </button>
         <button className="btn primary" onClick={() => setEditing({})}>
-          Host baru
+          {t.newHost}
         </button>
       </div>
 
       {!needle && (crumbs.length > 0 || groupId) && (
         <div className="row small muted" style={{ marginBottom: 10 }}>
           <button className="btn sm ghost" onClick={() => setGroupId(null)}>
-            Semua host
+            {t.allHosts}
           </button>
           {crumbs.map((c) => (
             <span key={c.id} className="row">
@@ -147,10 +231,10 @@ export function HostsView(): React.JSX.Element {
             <>
               <span className="grow" />
               <button className="btn sm" onClick={() => setEditingGroup({ group })}>
-                Edit grup
+                {t.editGroup}
               </button>
               <button className="btn sm danger" onClick={() => removeGroup(group)}>
-                Hapus grup
+                {t.removeGroupTitle}
               </button>
             </>
           )}
@@ -159,22 +243,19 @@ export function HostsView(): React.JSX.Element {
 
       {data.hosts.length === 0 && data.groups.length === 0 ? (
         <div className="empty">
-          <p>
-            Vault ini belum berisi host. Tambahkan server pertama, ambil yang sudah ada di
-            ~/.ssh/config, atau mulai dengan terminal lokal.
-          </p>
+          <p>{t.emptyVault}</p>
           <div className="row">
             <button className="btn primary" onClick={() => setEditing({})}>
-              Host baru
+              {t.newHost}
             </button>
             <button className="btn" onClick={importConfig}>
-              Import ~/.ssh/config
+              {t.importSsh}
             </button>
             <button className="btn" onClick={openLocal}>
-              Terminal lokal
+              {t.localTerminal}
             </button>
             <button className="btn" onClick={joinShared}>
-              Gabung sesi bersama
+              {t.joinShared}
             </button>
           </div>
         </div>
@@ -182,11 +263,11 @@ export function HostsView(): React.JSX.Element {
         <table className="table">
           <thead>
             <tr>
-              {sortHeader('label', 'Nama')}
-              {sortHeader('address', 'Alamat')}
-              <th>Protokol</th>
-              <th>Tag</th>
-              {sortHeader('lastConnectedAt', 'Terakhir')}
+              {sortHeader('label', t.name)}
+              {sortHeader('address', t.address)}
+              <th>{t.protocol}</th>
+              <th>{t.tag}</th>
+              {sortHeader('lastConnectedAt', t.lastUsed)}
               <th />
             </tr>
           </thead>
@@ -199,12 +280,12 @@ export function HostsView(): React.JSX.Element {
                   </button>
                   <span className="dim small">
                     {' '}
-                    {data.hosts.filter((h) => h.groupId === g.id).length} host
+                    {fmt(t.hostCount, String(data.hosts.filter((h) => h.groupId === g.id).length))}
                   </span>
                 </td>
                 <td className="actions">
                   <button className="btn sm ghost" onClick={() => setEditingGroup({ group: g })}>
-                    Edit
+                    {t.edit}
                   </button>
                 </td>
               </tr>
@@ -214,7 +295,7 @@ export function HostsView(): React.JSX.Element {
                 key={h.id}
                 className="clickable"
                 tabIndex={0}
-                aria-label={`${h.label}, ${addressOf(h)}. Enter untuk menghubungkan`}
+                aria-label={fmt(t.rowAria, h.label, addressOf(h))}
                 onDoubleClick={() => connect(h)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && e.target === e.currentTarget) connect(h)
@@ -224,9 +305,9 @@ export function HostsView(): React.JSX.Element {
                 <td className="mono small">{addressOf(h)}</td>
                 <td className="muted">{h.protocol}</td>
                 <td>
-                  {h.tags.map((t) => (
-                    <span key={t} className="tag" style={{ marginRight: 4 }}>
-                      {t}
+                  {h.tags.map((tag) => (
+                    <span key={tag} className="tag" style={{ marginRight: 4 }}>
+                      {tag}
                     </span>
                   ))}
                 </td>
@@ -235,10 +316,10 @@ export function HostsView(): React.JSX.Element {
                 </td>
                 <td className="actions">
                   <button className="btn sm" onClick={() => connect(h)}>
-                    Hubungkan
+                    {t.connect}
                   </button>
                   <button className="btn sm ghost" onClick={() => setEditing({ host: h })}>
-                    Edit
+                    {t.edit}
                   </button>
                   <button
                     className="btn sm ghost"
@@ -246,15 +327,15 @@ export function HostsView(): React.JSX.Element {
                       void api.upsert<Host>('hosts', {
                         ...h,
                         id: crypto.randomUUID(),
-                        label: h.label + ' (salinan)',
+                        label: h.label + t.copySuffix,
                         lastConnectedAt: undefined
                       })
                     }
                   >
-                    Duplikat
+                    {t.duplicate}
                   </button>
                   <button className="btn sm ghost danger" onClick={() => removeHost(h)}>
-                    Hapus
+                    {t.remove}
                   </button>
                 </td>
               </tr>
@@ -262,9 +343,7 @@ export function HostsView(): React.JSX.Element {
             {hosts.length === 0 && subGroups.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted">
-                  {needle
-                    ? `Tidak ada host yang cocok dengan "${q.trim()}".`
-                    : 'Grup ini masih kosong.'}
+                  {needle ? fmt(t.noMatch, q.trim()) : t.groupEmpty}
                 </td>
               </tr>
             )}
@@ -275,17 +354,15 @@ export function HostsView(): React.JSX.Element {
       {(data.hosts.length > 0 || data.groups.length > 0) && (
         <div className="row" style={{ marginTop: 14 }}>
           <button className="btn sm" onClick={importConfig}>
-            Import ~/.ssh/config
+            {t.importSsh}
           </button>
           <button className="btn sm" onClick={openLocal} title="Ctrl+Shift+T">
-            Terminal lokal
+            {t.localTerminal}
           </button>
           <button className="btn sm" onClick={joinShared}>
-            Gabung sesi bersama
+            {t.joinShared}
           </button>
-          <span className="dim small">
-            Klik dua kali atau tekan Enter pada baris untuk menghubungkan.
-          </span>
+          <span className="dim small">{t.rowHint}</span>
         </div>
       )}
 
@@ -301,7 +378,7 @@ export function HostsView(): React.JSX.Element {
       )}
       {quick && (
         <HostPicker
-          title="Quick connect"
+          title={t.quickConnect}
           onClose={() => setQuick(false)}
           onPick={(h) => {
             setQuick(false)

@@ -210,6 +210,8 @@ export interface Settings {
   scrollback: number
   autocomplete: boolean
   recordHistory: boolean
+  /** UI language. Mirrored in prefs.json so it is known before unlock. */
+  language: Language
   /** Lock the vault after this many idle minutes; 0 disables. */
   autoLockMinutes: number
   /** Lock when the computer sleeps or the screen is locked. */
@@ -217,6 +219,8 @@ export interface Settings {
   sync: SyncSettings
   ai: { enabled: boolean; apiKey: string; model: string }
 }
+
+export type Language = 'id' | 'en'
 
 /** Per-entity record of what the server last confirmed: updatedAt and scope. */
 export type SyncState = Record<string, { t: number; s: string }>
@@ -283,6 +287,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10000,
   autocomplete: true,
   recordHistory: true,
+  language: 'id',
   autoLockMinutes: 15,
   lockOnSleep: true,
   sync: { enabled: false, serverUrl: '', token: '' },

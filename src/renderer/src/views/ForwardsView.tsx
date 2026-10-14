@@ -2,18 +2,111 @@ import { useEffect, useState } from 'react'
 import { newId } from '../../../shared/merge'
 import type { ForwardRule, ForwardStatus } from '../../../shared/types'
 import { api, bridge, errMsg } from '../api'
+import { useT, fmt } from '../i18n'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
 import { confirmDialog } from '../lib'
 
+const S = {
+  id: {
+    viaServer: '(lewat server)',
+    fromHere: '(dari sini)',
+    socksAt: 'SOCKS5 di %s',
+    editRule: 'Edit aturan',
+    newRule: 'Aturan forwarding baru',
+    cancel: 'Batal',
+    save: 'Simpan',
+    label: 'Nama',
+    labelPh: 'Postgres prod',
+    type: 'Tipe',
+    typeLocal: 'Local (-L)',
+    typeRemote: 'Remote (-R)',
+    typeDynamic: 'Dynamic / SOCKS (-D)',
+    viaHost: 'Lewat host SSH',
+    bindOnServer: 'Bind address (di server)',
+    bindOnLaptop: 'Bind address (di laptop)',
+    bindPort: 'Bind port',
+    destFromServer: 'Tujuan (dilihat dari server)',
+    destFromLaptop: 'Tujuan (dilihat dari laptop)',
+    destPort: 'Port tujuan',
+    title: 'Port forwarding',
+    newRuleBtn: 'Aturan baru',
+    emptyRules:
+      'Belum ada aturan. Contoh: buka database di server lewat localhost:5432 tanpa membuka port-nya ke internet.',
+    needSshHost: 'Tambahkan host SSH dulu di menu Hosts; forwarding berjalan lewat koneksi SSH.',
+    thStatus: 'Status',
+    thName: 'Nama',
+    thType: 'Jenis',
+    thDir: 'Arah',
+    thVia: 'Lewat',
+    stActive: 'aktif',
+    stFailed: 'gagal',
+    stOff: 'mati',
+    hostDeleted: '(host terhapus)',
+    connecting: 'Menghubungkan',
+    start: 'Start',
+    stop: 'Stop',
+    edit: 'Edit',
+    deleteRule: 'Hapus aturan',
+    deleteRuleMsg: 'Hapus "%s"?',
+    del: 'Hapus'
+  },
+  en: {
+    viaServer: '(via server)',
+    fromHere: '(from this device)',
+    socksAt: 'SOCKS5 at %s',
+    editRule: 'Edit rule',
+    newRule: 'New forwarding rule',
+    cancel: 'Cancel',
+    save: 'Save',
+    label: 'Name',
+    labelPh: 'Postgres prod',
+    type: 'Type',
+    typeLocal: 'Local (-L)',
+    typeRemote: 'Remote (-R)',
+    typeDynamic: 'Dynamic / SOCKS (-D)',
+    viaHost: 'Via SSH host',
+    bindOnServer: 'Bind address (on the server)',
+    bindOnLaptop: 'Bind address (on this laptop)',
+    bindPort: 'Bind port',
+    destFromServer: 'Destination (as seen from the server)',
+    destFromLaptop: 'Destination (as seen from this laptop)',
+    destPort: 'Destination port',
+    title: 'Port forwarding',
+    newRuleBtn: 'New rule',
+    emptyRules:
+      'No rules yet. Example: reach a database on the server through localhost:5432 without exposing its port to the internet.',
+    needSshHost:
+      'Add an SSH host in the Hosts menu first; forwarding runs over the SSH connection.',
+    thStatus: 'Status',
+    thName: 'Name',
+    thType: 'Type',
+    thDir: 'Direction',
+    thVia: 'Via',
+    stActive: 'active',
+    stFailed: 'failed',
+    stOff: 'off',
+    hostDeleted: '(host deleted)',
+    connecting: 'Connecting',
+    start: 'Start',
+    stop: 'Stop',
+    edit: 'Edit',
+    deleteRule: 'Delete rule',
+    deleteRuleMsg: 'Delete "%s"?',
+    del: 'Delete'
+  }
+}
+
 function describe(r: ForwardRule): string {
+  const tr = S[useStore.getState().lang]
   const bind = `${r.bindAddress || '127.0.0.1'}:${r.bindPort}`
-  if (r.type === 'local') return `${bind} → ${r.destHost}:${r.destPort} (lewat server)`
-  if (r.type === 'remote') return `server ${bind} → ${r.destHost}:${r.destPort} (dari sini)`
-  return `SOCKS5 di ${bind}`
+  if (r.type === 'local') return `${bind} → ${r.destHost}:${r.destPort} ${tr.viaServer}`
+  if (r.type === 'remote') return `server ${bind} → ${r.destHost}:${r.destPort} ${tr.fromHere}`
+  return fmt(tr.socksAt, bind)
 }
 
 function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }): React.JSX.Element {
+  const t = useT(S)
   const hosts = useStore((s) => (s.data?.hosts ?? []).filter((h) => h.protocol === 'ssh'))
   const [r, setR] = useState<ForwardRule>(
     rule ?? {
@@ -35,12 +128,12 @@ function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }):
     (r.type === 'dynamic' || (r.destHost && r.destPort))
   return (
     <Modal
-      title={rule ? 'Edit aturan' : 'Aturan forwarding baru'}
+      title={rule ? t.editRule : t.newRule}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
@@ -50,34 +143,34 @@ function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }):
               onClose()
             }}
           >
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Nama">
+        <Field label={t.label}>
           <input
             className="input"
             autoFocus
             value={r.label}
             onChange={(e) => setR({ ...r, label: e.target.value })}
-            placeholder="Postgres prod"
+            placeholder={t.labelPh}
           />
         </Field>
-        <Field label="Tipe">
+        <Field label={t.type}>
           <select
             className="select"
             value={r.type}
             onChange={(e) => setR({ ...r, type: e.target.value as ForwardRule['type'] })}
           >
-            <option value="local">Local (-L)</option>
-            <option value="remote">Remote (-R)</option>
-            <option value="dynamic">Dynamic / SOCKS (-D)</option>
+            <option value="local">{t.typeLocal}</option>
+            <option value="remote">{t.typeRemote}</option>
+            <option value="dynamic">{t.typeDynamic}</option>
           </select>
         </Field>
       </div>
-      <Field label="Lewat host SSH">
+      <Field label={t.viaHost}>
         <select
           className="select"
           value={r.hostId}
@@ -91,16 +184,14 @@ function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }):
         </select>
       </Field>
       <div className="grid-2">
-        <Field
-          label={r.type === 'remote' ? 'Bind address (di server)' : 'Bind address (di laptop)'}
-        >
+        <Field label={r.type === 'remote' ? t.bindOnServer : t.bindOnLaptop}>
           <input
             className="input"
             value={r.bindAddress}
             onChange={(e) => setR({ ...r, bindAddress: e.target.value })}
           />
         </Field>
-        <Field label="Bind port">
+        <Field label={t.bindPort}>
           <input
             className="input"
             value={r.bindPort}
@@ -110,18 +201,14 @@ function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }):
       </div>
       {r.type !== 'dynamic' && (
         <div className="grid-2">
-          <Field
-            label={
-              r.type === 'local' ? 'Tujuan (dilihat dari server)' : 'Tujuan (dilihat dari laptop)'
-            }
-          >
+          <Field label={r.type === 'local' ? t.destFromServer : t.destFromLaptop}>
             <input
               className="input"
               value={r.destHost ?? ''}
               onChange={(e) => setR({ ...r, destHost: e.target.value })}
             />
           </Field>
-          <Field label="Port tujuan">
+          <Field label={t.destPort}>
             <input
               className="input"
               value={r.destPort ?? ''}
@@ -136,6 +223,7 @@ function RuleEditor({ rule, onClose }: { rule?: ForwardRule; onClose(): void }):
 }
 
 export function ForwardsView(): React.JSX.Element {
+  const t = useT(S)
   const data = useStore((s) => s.data)!
   const toast = useStore((s) => s.toast)
   const [status, setStatus] = useState<ForwardStatus[]>([])
@@ -152,37 +240,32 @@ export function ForwardsView(): React.JSX.Element {
   return (
     <div className="view">
       <div className="view-head">
-        <h1>Port forwarding</h1>
+        <h1>{t.title}</h1>
         <span className="grow" />
         <button
           className="btn primary"
           onClick={() => setEditing({})}
           disabled={!data.hosts.some((h) => h.protocol === 'ssh')}
         >
-          Aturan baru
+          {t.newRuleBtn}
         </button>
       </div>
       {data.forwardRules.length === 0 ? (
         <div className="empty">
-          <p>
-            Belum ada aturan. Contoh: buka database di server lewat localhost:5432 tanpa membuka
-            port-nya ke internet.
-          </p>
+          <p>{t.emptyRules}</p>
           {!data.hosts.some((h) => h.protocol === 'ssh') && (
-            <p className="muted">
-              Tambahkan host SSH dulu di menu Hosts; forwarding berjalan lewat koneksi SSH.
-            </p>
+            <p className="muted">{t.needSshHost}</p>
           )}
         </div>
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Status</th>
-              <th>Nama</th>
-              <th>Jenis</th>
-              <th>Arah</th>
-              <th>Lewat</th>
+              <th>{t.thStatus}</th>
+              <th>{t.thName}</th>
+              <th>{t.thType}</th>
+              <th>{t.thDir}</th>
+              <th>{t.thVia}</th>
               <th />
             </tr>
           </thead>
@@ -197,7 +280,7 @@ export function ForwardsView(): React.JSX.Element {
                       <span
                         className={'dot ' + (s?.active ? 'connected' : s?.error ? 'error' : '')}
                       />
-                      {s?.active ? 'aktif' : s?.error ? 'gagal' : 'mati'}
+                      {s?.active ? t.stActive : s?.error ? t.stFailed : t.stOff}
                     </span>
                   </td>
                   <td>
@@ -210,11 +293,11 @@ export function ForwardsView(): React.JSX.Element {
                   </td>
                   <td className="muted">{r.type}</td>
                   <td className="mono small">{describe(r)}</td>
-                  <td className="muted">{host?.label ?? '(host terhapus)'}</td>
+                  <td className="muted">{host?.label ?? t.hostDeleted}</td>
                   <td className="actions">
                     {s?.active ? (
                       <button className="btn sm" onClick={() => void api.forwardStop(r.id)}>
-                        Stop
+                        {t.stop}
                       </button>
                     ) : (
                       <button
@@ -231,19 +314,19 @@ export function ForwardsView(): React.JSX.Element {
                           }
                         }}
                       >
-                        {busy === r.id ? 'Menghubungkan' : 'Start'}
+                        {busy === r.id ? t.connecting : t.start}
                       </button>
                     )}
                     <button className="btn sm ghost" onClick={() => setEditing({ v: r })}>
-                      Edit
+                      {t.edit}
                     </button>
                     <button
                       className="btn sm ghost danger"
                       onClick={async () => {
                         if (
-                          await confirmDialog('Hapus aturan', `Hapus "${r.label}"?`, {
+                          await confirmDialog(t.deleteRule, fmt(t.deleteRuleMsg, r.label), {
                             danger: true,
-                            okLabel: 'Hapus'
+                            okLabel: t.del
                           })
                         ) {
                           await api.forwardStop(r.id)
@@ -251,7 +334,7 @@ export function ForwardsView(): React.JSX.Element {
                         }
                       }}
                     >
-                      Hapus
+                      {t.del}
                     </button>
                   </td>
                 </tr>

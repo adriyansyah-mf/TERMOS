@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { VaultStatus } from '../../shared/api'
+import type { Language } from '../../shared/types'
 import type { OpenSessionRequest, SessionEvent, SessionTarget, VaultData } from '../../shared/types'
 import { api, bridge, errMsg } from './api'
 
@@ -44,6 +45,8 @@ export interface Toast {
 interface State {
   status: VaultStatus | null
   data: VaultData | null
+  /** UI language; follows prefs.json before unlock and vault settings after. */
+  lang: Language
   view: View
   tabs: Tab[]
   /** null means the home (vault) screen is shown. */
@@ -74,6 +77,7 @@ const DEFAULT_SIZE = { cols: 100, rows: 30 }
 export const useStore = create<State>((set, get) => ({
   status: null,
   data: null,
+  lang: 'id',
   view: 'hosts',
   tabs: [],
   activeTab: null,
@@ -82,14 +86,15 @@ export const useStore = create<State>((set, get) => ({
 
   refreshStatus: async () => {
     const status = await api.vaultStatus()
-    set({ status })
+    set({ status, lang: status.language })
     if (status.unlocked) await get().refreshData()
     else set({ data: null, tabs: [], activeTab: null })
   },
 
   refreshData: async () => {
     try {
-      set({ data: await api.vaultSnapshot() })
+      const data = await api.vaultSnapshot()
+      set({ data, lang: data.settings.language })
     } catch {
       /* vault locked meanwhile */
     }

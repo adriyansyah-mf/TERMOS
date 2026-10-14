@@ -3,9 +3,171 @@ import type { GuestAction, GuestType, PveSnapshot, PveTask } from '../../../shar
 import { newId } from '../../../shared/merge'
 import type { Host, ProxmoxServer, PveResource } from '../../../shared/types'
 import { api, errMsg } from '../api'
+import { useT, fmt } from '../i18n'
 import { useStore } from '../store'
 import { Field, Modal } from '../components/ui'
 import { confirmDialog, formatBytes, promptDialog, promptOne } from '../lib'
+
+const S = {
+  id: {
+    nameRequired: 'Nama wajib diisi',
+    urlInvalid: 'URL tidak valid',
+    tokenIdFormat: 'Token ID harus berformat user@realm!namatoken',
+    tokenSecretRequired: 'Token secret wajib diisi',
+    userPassRequired: 'Username dan password wajib diisi',
+    connected: 'Terhubung: Proxmox VE %s',
+    editX: 'Edit %s',
+    newServerTitle: 'Server Proxmox baru',
+    testing: 'Mengetes…',
+    testConn: 'Tes koneksi',
+    cancel: 'Batal',
+    save: 'Simpan',
+    name: 'Nama',
+    namePh: 'pve-rumah',
+    portHint: 'Port 8006 dipakai bila tidak diisi.',
+    loginWith: 'Login dengan',
+    apiTokenOpt: 'API token (disarankan)',
+    sshHostLabel: 'Host SSH untuk node (opsional)',
+    sshHostHint: 'Kalau kosong, Termos SSH sebagai root ke IP node dari API.',
+    auto: '(otomatis)',
+    fpLabel: 'Fingerprint sertifikat (dipin)',
+    forget: 'Lupakan',
+    certSelfSigned: 'Sertifikat self-signed',
+    unnamed: '(tanpa nama)',
+    certVerify:
+      '. Cocokkan fingerprint SHA-256 ini dengan Datacenter → node → System → Certificates:',
+    trustRetest: 'Percayai & tes ulang',
+    certChanged:
+      'Fingerprint sertifikat BERUBAH (diharapkan %s, didapat %s). Jangan lanjut kecuali sertifikat memang diganti.',
+    forceStop: 'Stop paksa',
+    actConfirm: '%s %s %s (%s)?%s',
+    stopWarning: ' Ini seperti mencabut listrik.',
+    actionSent: '%s %s dikirim',
+    saveAsHost: 'Simpan sebagai host SSH',
+    sshTo: 'SSH ke %s',
+    addrDetected: 'Alamat (terdeteksi: %s)',
+    addrLabel: 'Alamat IP / hostname',
+    connect: 'Hubungkan',
+    hostSaved: 'Host "%s" disimpan',
+    searchPh: 'Cari VM / CT, VMID, tag…',
+    reload: 'Muat ulang',
+    removeServer: 'Hapus server',
+    removeServerConfirm: 'Hapus "%s" dari Termos?',
+    remove: 'Hapus',
+    certUntrustedTree: 'Sertifikat self-signed belum dipercaya. Fingerprint:',
+    trustCert: 'Percayai sertifikat ini',
+    certChangedTree:
+      'Fingerprint sertifikat berubah! Diharapkan %s, didapat %s. Hapus pin di Edit server kalau memang diganti.',
+    loading: 'Memuat…',
+    webShell: 'Shell web',
+    taskRunning: 'berjalan',
+    noMatch: 'Tidak ada VM/CT yang cocok di node ini.',
+    noGuests: 'Node ini belum punya VM atau CT.',
+    type: 'Jenis',
+    runningUp: 'jalan, up %s',
+    processing: '(memproses)',
+    enterViaNode: 'Masuk lewat node (pct enter)',
+    serialViaNode: 'Serial console lewat node (qm terminal)',
+    saveHost: 'Simpan host',
+    newSnapshot: 'Snapshot baru',
+    snapNameHint: 'Nama (huruf di awal; huruf, angka, _ atau -)',
+    invalidSnapName: 'Nama snapshot tidak valid',
+    snapshotCreated: 'Snapshot "%s" sedang dibuat',
+    createSnapshot: 'Buat snapshot',
+    noSnapshots: '%s ini belum punya snapshot. Buat satu sebelum mengubah konfigurasi.',
+    rollbackConfirm: 'Kembalikan %s ke "%s"? Semua perubahan setelah snapshot ini hilang.',
+    rollbackSent: 'Rollback dikirim',
+    removeSnapshot: 'Hapus snapshot',
+    removeSnapConfirm: 'Hapus "%s"?',
+    snapshotRemoved: 'Snapshot dihapus',
+    addServer: 'Server baru',
+    emptyText:
+      'Belum ada server Proxmox. Buat API token di Datacenter, Permissions, API Tokens, lalu tambahkan servernya di sini.',
+    addProxmox: 'Tambah server Proxmox',
+    upDays: '%sh %sj',
+    upHours: '%sj %sm',
+    upMin: '%sm'
+  },
+  en: {
+    nameRequired: 'Name is required',
+    urlInvalid: 'Invalid URL',
+    tokenIdFormat: 'Token ID must be in the format user@realm!tokenname',
+    tokenSecretRequired: 'Token secret is required',
+    userPassRequired: 'Username and password are required',
+    connected: 'Connected: Proxmox VE %s',
+    editX: 'Edit %s',
+    newServerTitle: 'New Proxmox server',
+    testing: 'Testing…',
+    testConn: 'Test connection',
+    cancel: 'Cancel',
+    save: 'Save',
+    name: 'Name',
+    namePh: 'pve-home',
+    portHint: 'Port 8006 is used when not specified.',
+    loginWith: 'Log in with',
+    apiTokenOpt: 'API token (recommended)',
+    sshHostLabel: 'SSH host for the node (optional)',
+    sshHostHint: 'If empty, Termos SSHes as root to the node IP from the API.',
+    auto: '(automatic)',
+    fpLabel: 'Certificate fingerprint (pinned)',
+    forget: 'Forget',
+    certSelfSigned: 'Self-signed certificate',
+    unnamed: '(unnamed)',
+    certVerify:
+      '. Match this SHA-256 fingerprint against Datacenter → node → System → Certificates:',
+    trustRetest: 'Trust & retest',
+    certChanged:
+      'Certificate fingerprint CHANGED (expected %s, got %s). Do not continue unless the certificate was really replaced.',
+    forceStop: 'Force stop',
+    actConfirm: '%s %s %s (%s)?%s',
+    stopWarning: " It's like pulling the power plug.",
+    actionSent: '%s %s sent',
+    saveAsHost: 'Save as SSH host',
+    sshTo: 'SSH to %s',
+    addrDetected: 'Address (detected: %s)',
+    addrLabel: 'IP address / hostname',
+    connect: 'Connect',
+    hostSaved: 'Host "%s" saved',
+    searchPh: 'Search VM / CT, VMID, tag…',
+    reload: 'Reload',
+    removeServer: 'Remove server',
+    removeServerConfirm: 'Remove "%s" from Termos?',
+    remove: 'Remove',
+    certUntrustedTree: 'Self-signed certificate not yet trusted. Fingerprint:',
+    trustCert: 'Trust this certificate',
+    certChangedTree:
+      'Certificate fingerprint changed! Expected %s, got %s. Remove the pin in Edit server if it was really replaced.',
+    loading: 'Loading…',
+    webShell: 'Web shell',
+    taskRunning: 'running',
+    noMatch: 'No matching VM/CT on this node.',
+    noGuests: 'This node has no VMs or CTs yet.',
+    type: 'Type',
+    runningUp: 'running, up %s',
+    processing: '(working)',
+    enterViaNode: 'Enter via node (pct enter)',
+    serialViaNode: 'Serial console via node (qm terminal)',
+    saveHost: 'Save host',
+    newSnapshot: 'New snapshot',
+    snapNameHint: 'Name (starts with a letter; letters, digits, _ or -)',
+    invalidSnapName: 'Invalid snapshot name',
+    snapshotCreated: 'Snapshot "%s" created',
+    createSnapshot: 'Create snapshot',
+    noSnapshots: 'This %s has no snapshots yet. Create one before changing the configuration.',
+    rollbackConfirm: 'Roll %s back to "%s"? All changes after this snapshot are lost.',
+    rollbackSent: 'Rollback sent',
+    removeSnapshot: 'Remove snapshot',
+    removeSnapConfirm: 'Remove "%s"?',
+    snapshotRemoved: 'Snapshot removed',
+    addServer: 'New server',
+    emptyText:
+      'No Proxmox servers yet. Create an API token under Datacenter, Permissions, API Tokens, then add the server here.',
+    addProxmox: 'Add Proxmox server',
+    upDays: '%sd %sh',
+    upHours: '%sh %sm',
+    upMin: '%sm'
+  }
+}
 
 interface CertProblem {
   kind: 'untrusted' | 'changed'
@@ -35,6 +197,7 @@ function ServerEditor({
   server?: ProxmoxServer
   onClose(): void
 }): React.JSX.Element {
+  const t = useT(S)
   const hosts = useStore((s) => s.data?.hosts ?? [])
   const toast = useStore((s) => s.toast)
   const [s, setS] = useState<ProxmoxServer>(
@@ -53,17 +216,16 @@ function ServerEditor({
   const [busy, setBusy] = useState(false)
 
   const error = (() => {
-    if (!s.label.trim()) return 'Nama wajib diisi'
+    if (!s.label.trim()) return t.nameRequired
     try {
       normalizeUrl(s.url)
     } catch {
-      return 'URL tidak valid'
+      return t.urlInvalid
     }
     if (s.authType === 'token') {
-      if (!/^[^@\s]+@[^!\s]+![^\s]+$/.test(s.tokenId?.trim() ?? ''))
-        return 'Token ID harus berformat user@realm!namatoken'
-      if (!s.tokenSecret) return 'Token secret wajib diisi'
-    } else if (!s.username || !s.password) return 'Username dan password wajib diisi'
+      if (!/^[^@\s]+@[^!\s]+![^\s]+$/.test(s.tokenId?.trim() ?? '')) return t.tokenIdFormat
+      if (!s.tokenSecret) return t.tokenSecretRequired
+    } else if (!s.username || !s.password) return t.userPassRequired
     return null
   })()
 
@@ -80,7 +242,7 @@ function ServerEditor({
     setCert(null)
     try {
       const v = await api.pveVersion(clean(draft))
-      setTest({ ok: true, text: `Terhubung: Proxmox VE ${v.version}` })
+      setTest({ ok: true, text: fmt(t.connected, v.version) })
     } catch (e) {
       const c = parseCert(errMsg(e))
       if (c) setCert(c)
@@ -93,16 +255,16 @@ function ServerEditor({
   return (
     <Modal
       wide
-      title={server ? `Edit ${server.label}` : 'Server Proxmox baru'}
+      title={server ? fmt(t.editX, server.label) : t.newServerTitle}
       onClose={onClose}
       footer={
         <>
           <button className="btn" disabled={busy || !!error} onClick={() => void runTest()}>
-            {busy ? 'Mengetes…' : 'Tes koneksi'}
+            {busy ? t.testing : t.testConn}
           </button>
           <span className="grow" />
           <button className="btn" onClick={onClose}>
-            Batal
+            {t.cancel}
           </button>
           <button
             className="btn primary"
@@ -116,22 +278,22 @@ function ServerEditor({
               }
             }}
           >
-            Simpan
+            {t.save}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Nama">
+        <Field label={t.name}>
           <input
             className="input"
             autoFocus
             value={s.label}
             onChange={(e) => setS({ ...s, label: e.target.value })}
-            placeholder="pve-rumah"
+            placeholder={t.namePh}
           />
         </Field>
-        <Field label="URL" hint="Port 8006 dipakai bila tidak diisi.">
+        <Field label="URL" hint={t.portHint}>
           <input
             className="input"
             value={s.url}
@@ -140,13 +302,13 @@ function ServerEditor({
           />
         </Field>
       </div>
-      <Field label="Login dengan">
+      <Field label={t.loginWith}>
         <select
           className="select"
           value={s.authType}
           onChange={(e) => setS({ ...s, authType: e.target.value as 'token' | 'password' })}
         >
-          <option value="token">API token (disarankan)</option>
+          <option value="token">{t.apiTokenOpt}</option>
           <option value="password">Username + password</option>
         </select>
       </Field>
@@ -199,16 +361,13 @@ function ServerEditor({
           </Field>
         </div>
       )}
-      <Field
-        label="Host SSH untuk node (opsional)"
-        hint="Kalau kosong, Termos SSH sebagai root ke IP node dari API."
-      >
+      <Field label={t.sshHostLabel} hint={t.sshHostHint}>
         <select
           className="select"
           value={s.sshHostId ?? ''}
           onChange={(e) => setS({ ...s, sshHostId: e.target.value || undefined })}
         >
-          <option value="">(otomatis)</option>
+          <option value="">{t.auto}</option>
           {hosts
             .filter((h) => h.protocol === 'ssh')
             .map((h) => (
@@ -219,11 +378,11 @@ function ServerEditor({
         </select>
       </Field>
       {s.fingerprint && (
-        <Field label="Fingerprint sertifikat (dipin)">
+        <Field label={t.fpLabel}>
           <div className="row">
             <span className="fp grow">{s.fingerprint}</span>
             <button className="btn sm" onClick={() => setS({ ...s, fingerprint: undefined })}>
-              Lupakan
+              {t.forget}
             </button>
           </div>
         </Field>
@@ -239,8 +398,8 @@ function ServerEditor({
           {cert.kind === 'untrusted' ? (
             <>
               <div>
-                Sertifikat self-signed <b>{cert.b || '(tanpa nama)'}</b>. Cocokkan fingerprint
-                SHA-256 ini dengan Datacenter → node → System → Certificates:
+                {t.certSelfSigned} <b>{cert.b || t.unnamed}</b>
+                {t.certVerify}
               </div>
               <div className="fp" style={{ margin: '6px 0' }}>
                 {cert.a}
@@ -253,14 +412,11 @@ function ServerEditor({
                   void runTest(next)
                 }}
               >
-                Percayai & tes ulang
+                {t.trustRetest}
               </button>
             </>
           ) : (
-            <>
-              Fingerprint sertifikat BERUBAH (diharapkan {cert.a}, didapat {cert.b}). Jangan lanjut
-              kecuali sertifikat memang diganti.
-            </>
+            <>{fmt(t.certChanged, cert.a, cert.b)}</>
           )}
         </div>
       )}
@@ -276,7 +432,12 @@ function uptime(s?: number): string {
   const d = Math.floor(s / 86400)
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
-  return d ? `${d}h ${h}j` : h ? `${h}j ${m}m` : `${m}m`
+  const u = S[useStore.getState().lang]
+  return d
+    ? fmt(u.upDays, String(d), String(h))
+    : h
+      ? fmt(u.upHours, String(h), String(m))
+      : fmt(u.upMin, String(m))
 }
 
 function Stat({
@@ -302,6 +463,7 @@ function Stat({
 }
 
 function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
+  const t = useT(S)
   const { toast, openSession } = useStore.getState()
   const [res, setRes] = useState<PveResource[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -324,8 +486,8 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
   useEffect(() => {
     setRes(null)
     void load()
-    const t = setInterval(() => void load(), 10000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => void load(), 10000)
+    return () => clearInterval(timer)
   }, [load])
 
   const cert = error ? parseCert(error) : null
@@ -347,14 +509,21 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
 
   const act = async (g: PveResource, action: GuestAction): Promise<void> => {
     const labels: Partial<Record<GuestAction, string>> = {
-      stop: 'Stop paksa',
+      stop: t.forceStop,
       reboot: 'Reboot',
       shutdown: 'Shutdown'
     }
     if (labels[action]) {
       const ok = await confirmDialog(
         labels[action]!,
-        `${labels[action]} ${g.type === 'qemu' ? 'VM' : 'CT'} ${g.vmid} (${g.name ?? ''})?${action === 'stop' ? ' Ini seperti mencabut listrik.' : ''}`,
+        fmt(
+          t.actConfirm,
+          labels[action]!,
+          g.type === 'qemu' ? 'VM' : 'CT',
+          String(g.vmid),
+          g.name ?? '',
+          action === 'stop' ? t.stopWarning : ''
+        ),
         { danger: action === 'stop', okLabel: labels[action] }
       )
       if (!ok) return
@@ -362,7 +531,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
     setBusy((b) => new Set(b).add(g.id))
     try {
       await api.pveAction(server.id, g.node, g.type as GuestType, g.vmid!, action)
-      toast(`${action} ${g.vmid} dikirim`)
+      toast(fmt(t.actionSent, action, String(g.vmid)))
       setTimeout(() => void load(), 2500)
     } catch (e) {
       toast(errMsg(e), 'error')
@@ -392,16 +561,16 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
       /* guest agent not running; ask manually */
     }
     const r = await promptDialog(
-      save ? 'Simpan sebagai host SSH' : `SSH ke ${g.name ?? g.vmid}`,
+      save ? t.saveAsHost : fmt(t.sshTo, String(g.name ?? g.vmid)),
       [
         {
           key: 'ip',
-          label: ips.length > 1 ? `Alamat (terdeteksi: ${ips.join(', ')})` : 'Alamat IP / hostname',
+          label: ips.length > 1 ? fmt(t.addrDetected, ips.join(', ')) : t.addrLabel,
           value: ips[0] ?? ''
         },
         { key: 'user', label: 'Username', value: 'root' }
       ],
-      save ? 'Simpan' : 'Hubungkan'
+      save ? t.save : t.connect
     )
     if (!r?.ip) return
     const label = `${g.name ?? g.vmid} (${g.vmid})`
@@ -427,7 +596,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
         source: { kind: 'proxmox', ref: `${server.id}/${g.vmid}` },
         config: { username: r.user || 'root' }
       })
-      toast(`Host "${label}" disimpan`)
+      toast(fmt(t.hostSaved, label))
     } else {
       void openSession({
         kind: 'adhoc',
@@ -441,13 +610,13 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
       <div className="row" style={{ marginBottom: 14 }}>
         <input
           className="input search"
-          placeholder="Cari VM / CT, VMID, tag…"
+          placeholder={t.searchPh}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
         <span className="grow" />
         <button className="btn sm" onClick={() => void load()}>
-          Muat ulang
+          {t.reload}
         </button>
         <button className="btn sm" onClick={() => setEditing(true)}>
           Edit server
@@ -456,15 +625,15 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
           className="btn sm danger"
           onClick={async () => {
             if (
-              await confirmDialog('Hapus server', `Hapus "${server.label}" dari Termos?`, {
+              await confirmDialog(t.removeServer, fmt(t.removeServerConfirm, server.label), {
                 danger: true,
-                okLabel: 'Hapus'
+                okLabel: t.remove
               })
             )
               await api.remove('proxmox', server.id)
           }}
         >
-          Hapus
+          {t.remove}
         </button>
       </div>
 
@@ -472,8 +641,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
         <div className="alert warn small">
           {cert.kind === 'untrusted' ? (
             <>
-              Sertifikat self-signed belum dipercaya. Fingerprint:{' '}
-              <span className="fp">{cert.a}</span>
+              {t.certUntrustedTree} <span className="fp">{cert.a}</span>
               <div style={{ marginTop: 8 }}>
                 <button
                   className="btn sm"
@@ -482,20 +650,17 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                     setTimeout(() => void load(), 300)
                   }}
                 >
-                  Percayai sertifikat ini
+                  {t.trustCert}
                 </button>
               </div>
             </>
           ) : (
-            <>
-              Fingerprint sertifikat berubah! Diharapkan {cert.a}, didapat {cert.b}. Hapus pin di
-              Edit server kalau memang diganti.
-            </>
+            <>{fmt(t.certChangedTree, cert.a, cert.b)}</>
           )}
         </div>
       )}
       {error && !cert && <div className="alert error small">{error}</div>}
-      {!res && !error && <div className="dim">Memuat…</div>}
+      {!res && !error && <div className="dim">{t.loading}</div>}
 
       {nodes.map((n) => {
         const open = !collapsed.has(n.node)
@@ -543,7 +708,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                 SSH
               </button>
               <button className="btn sm" onClick={() => void api.pveOpenConsole(server.id, n.node)}>
-                Shell web
+                {t.webShell}
               </button>
               <button
                 className={'btn sm' + (tasks?.node === n.node ? ' on' : '')}
@@ -564,18 +729,20 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
               <div className="pve-sub">
                 <table className="simple">
                   <tbody>
-                    {tasks.list.map((t) => (
-                      <tr key={t.upid}>
-                        <td className="muted">{new Date(t.starttime * 1000).toLocaleString()}</td>
-                        <td>{t.type}</td>
-                        <td>{t.id}</td>
-                        <td className="muted">{t.user}</td>
+                    {tasks.list.map((task) => (
+                      <tr key={task.upid}>
+                        <td className="muted">
+                          {new Date(task.starttime * 1000).toLocaleString()}
+                        </td>
+                        <td>{task.type}</td>
+                        <td>{task.id}</td>
+                        <td className="muted">{task.user}</td>
                         <td
                           style={{
-                            color: t.status && t.status !== 'OK' ? 'var(--danger)' : undefined
+                            color: task.status && task.status !== 'OK' ? 'var(--danger)' : undefined
                           }}
                         >
-                          {t.status ?? 'berjalan'}
+                          {task.status ?? t.taskRunning}
                         </td>
                       </tr>
                     ))}
@@ -585,7 +752,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
             )}
             {open && guests.length === 0 && (
               <div className="muted small" style={{ padding: '8px 12px' }}>
-                {q ? 'Tidak ada VM/CT yang cocok di node ini.' : 'Node ini belum punya VM atau CT.'}
+                {q ? t.noMatch : t.noGuests}
               </div>
             )}
             {open && guests.length > 0 && (
@@ -593,8 +760,8 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                 <thead>
                   <tr>
                     <th>ID</th>
-                    <th>Nama</th>
-                    <th>Jenis</th>
+                    <th>{t.name}</th>
+                    <th>{t.type}</th>
                     <th>Status</th>
                     <th>CPU</th>
                     <th>RAM</th>
@@ -611,14 +778,14 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                         <tr className={g.template ? 'template' : ''}>
                           <td className="mono">{g.vmid}</td>
                           <td>
-                            <span className="cell-title">{g.name || '(tanpa nama)'}</span>
+                            <span className="cell-title">{g.name || t.unnamed}</span>
                             {g.tags &&
                               g.tags
                                 .split(/[;,\s]+/)
                                 .filter(Boolean)
-                                .map((t) => (
-                                  <span key={t} className="tag" style={{ marginLeft: 6 }}>
-                                    {t}
+                                .map((tag) => (
+                                  <span key={tag} className="tag" style={{ marginLeft: 6 }}>
+                                    {tag}
                                   </span>
                                 ))}
                           </td>
@@ -626,8 +793,8 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                           <td>
                             <span className="row" style={{ gap: 6 }}>
                               <span className={'dot ' + g.status} />
-                              {running ? `jalan, up ${uptime(g.uptime)}` : g.status}
-                              {isBusy && <span className="muted">(memproses)</span>}
+                              {running ? fmt(t.runningUp, uptime(g.uptime)) : g.status}
+                              {isBusy && <span className="muted">{t.processing}</span>}
                             </span>
                           </td>
                           <td>
@@ -677,11 +844,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                     </button>
                                     <button
                                       className="btn sm"
-                                      title={
-                                        g.type === 'lxc'
-                                          ? 'Masuk lewat node (pct enter)'
-                                          : 'Serial console lewat node (qm terminal)'
-                                      }
+                                      title={g.type === 'lxc' ? t.enterViaNode : t.serialViaNode}
                                       onClick={() =>
                                         void openSession({
                                           kind: 'proxmox',
@@ -745,7 +908,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                               Snapshot
                             </button>
                             <button className="btn sm ghost" onClick={() => void sshGuest(g, true)}>
-                              Simpan host
+                              {t.saveHost}
                             </button>
                             {running && !g.template && (
                               <button
@@ -753,7 +916,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                 disabled={isBusy}
                                 onClick={() => act(g, 'stop')}
                               >
-                                Stop paksa
+                                {t.forceStop}
                               </button>
                             )}
                           </td>
@@ -767,13 +930,13 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                   className="btn sm"
                                   onClick={async () => {
                                     const name = await promptOne(
-                                      'Snapshot baru',
-                                      'Nama (huruf di awal; huruf, angka, _ atau -)',
+                                      t.newSnapshot,
+                                      t.snapNameHint,
                                       `termos_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`
                                     )
                                     if (!name) return
                                     if (!/^[A-Za-z][A-Za-z0-9_-]{1,39}$/.test(name))
-                                      return toast('Nama snapshot tidak valid', 'error')
+                                      return toast(t.invalidSnapName, 'error')
                                     try {
                                       await api.pveSnapshotCreate(
                                         server.id,
@@ -782,21 +945,18 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                         g.vmid!,
                                         name
                                       )
-                                      toast(`Snapshot "${name}" sedang dibuat`)
+                                      toast(fmt(t.snapshotCreated, name))
                                       setTimeout(() => void loadSnaps(g), 3000)
                                     } catch (e) {
                                       toast(errMsg(e), 'error')
                                     }
                                   }}
                                 >
-                                  Buat snapshot
+                                  {t.createSnapshot}
                                 </button>
                               </div>
                               {snaps.list.length === 0 ? (
-                                <div className="muted small">
-                                  {kind} ini belum punya snapshot. Buat satu sebelum mengubah
-                                  konfigurasi.
-                                </div>
+                                <div className="muted small">{fmt(t.noSnapshots, kind)}</div>
                               ) : (
                                 <table className="simple">
                                   <tbody>
@@ -827,7 +987,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                                   g.vmid!,
                                                   sn.name
                                                 )
-                                                toast('Rollback dikirim')
+                                                toast(t.rollbackSent)
                                                 setTimeout(() => void load(), 3000)
                                               } catch (e) {
                                                 toast(errMsg(e), 'error')
@@ -841,11 +1001,11 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                             onClick={async () => {
                                               if (
                                                 !(await confirmDialog(
-                                                  'Hapus snapshot',
-                                                  `Hapus "${sn.name}"?`,
+                                                  t.removeSnapshot,
+                                                  fmt(t.removeSnapConfirm, sn.name),
                                                   {
                                                     danger: true,
-                                                    okLabel: 'Hapus'
+                                                    okLabel: t.remove
                                                   }
                                                 ))
                                               )
@@ -858,7 +1018,7 @@ function ServerTree({ server }: { server: ProxmoxServer }): React.JSX.Element {
                                                   g.vmid!,
                                                   sn.name
                                                 )
-                                                toast('Snapshot dihapus')
+                                                toast(t.snapshotRemoved)
                                                 setTimeout(() => void loadSnaps(g), 2000)
                                               } catch (e) {
                                                 toast(errMsg(e), 'error')

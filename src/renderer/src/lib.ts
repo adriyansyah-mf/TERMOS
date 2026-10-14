@@ -1,5 +1,22 @@
 import type { ReactNode } from 'react'
 import { create } from 'zustand'
+import { fmt } from './i18n'
+import { useStore } from './store'
+
+const S = {
+  id: {
+    justNow: 'baru saja',
+    minutesAgo: '%s menit lalu',
+    hoursAgo: '%s jam lalu',
+    daysAgo: '%s hari lalu'
+  },
+  en: {
+    justNow: 'just now',
+    minutesAgo: '%s minutes ago',
+    hoursAgo: '%s hours ago',
+    daysAgo: '%s days ago'
+  }
+}
 
 export function formatBytes(n?: number): string {
   if (!n) return '0 B'
@@ -15,10 +32,11 @@ export function formatBytes(n?: number): string {
 export function timeAgo(ms?: number): string {
   if (!ms) return '-'
   const s = Math.floor((Date.now() - ms) / 1000)
-  if (s < 60) return 'baru saja'
-  if (s < 3600) return `${Math.floor(s / 60)} menit lalu`
-  if (s < 86400) return `${Math.floor(s / 3600)} jam lalu`
-  return `${Math.floor(s / 86400)} hari lalu`
+  const t = S[useStore.getState().lang]
+  if (s < 60) return t.justNow
+  if (s < 3600) return fmt(t.minutesAgo, String(Math.floor(s / 60)))
+  if (s < 86400) return fmt(t.hoursAgo, String(Math.floor(s / 3600)))
+  return fmt(t.daysAgo, String(Math.floor(s / 86400)))
 }
 
 interface DialogField {

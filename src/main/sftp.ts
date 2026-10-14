@@ -4,9 +4,23 @@ import type { SFTPWrapper, Stats } from 'ssh2'
 import { posix } from 'node:path'
 import { newId } from '../shared/merge'
 import type { Host, SftpEntry } from '../shared/types'
+import { tr } from './i18n'
 import { connectSsh, type SshConnection } from './ssh/connect'
 import { sessions } from './sessions/manager'
 import { vault } from './vault'
+
+const S = {
+  id: {
+    hostNotFound: 'Host tidak ditemukan',
+    sessionClosed: 'Sesi SFTP sudah tertutup',
+    fileTooLarge: 'File terlalu besar untuk dibuka di editor (> 2 MB)'
+  },
+  en: {
+    hostNotFound: 'Host not found',
+    sessionClosed: 'SFTP session is already closed',
+    fileTooLarge: 'File too large to open in the editor (> 2 MB)'
+  }
+}
 
 interface SftpSession {
   conn: SshConnection
@@ -35,7 +49,7 @@ class SftpManager {
 
   async connect(hostId: string): Promise<{ sftpId: string; home: string }> {
     const host = vault.find<Host>('hosts', hostId)
-    if (!host) throw new Error('Host tidak ditemukan')
+    if (!host) throw new Error(tr(S).hostNotFound)
     // A hidden session context lets host-key and password prompts reach the renderer.
     const ctx = sessions.create(`sftp:${host.label}`, hostId)
     try {
@@ -53,7 +67,7 @@ class SftpManager {
 
   private get(id: string): SftpSession {
     const s = this.open.get(id)
-    if (!s) throw new Error('Sesi SFTP sudah tertutup')
+    if (!s) throw new Error(tr(S).sessionClosed)
     return s
   }
 
@@ -120,8 +134,7 @@ class SftpManager {
   async readText(id: string, path: string): Promise<string> {
     const { sftp } = this.get(id)
     const st = await p<Stats>((cb) => sftp.stat(path, cb))
-    if (st.size > 2 * 1024 * 1024)
-      throw new Error('File terlalu besar untuk dibuka di editor (> 2 MB)')
+    if (st.size > 2 * 1024 * 1024) throw new Error(tr(S).fileTooLarge)
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
       const rs = sftp.createReadStream(path)

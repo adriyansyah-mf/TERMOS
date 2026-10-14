@@ -11,6 +11,23 @@ import { importSshConfig } from './sshconfig'
 import { sharing } from './sharing'
 import { sync } from './sync'
 import { vault } from './vault'
+import { getLanguage, tr } from './i18n'
+import { loadLanguage, persistLanguage } from './prefs'
+
+const S = {
+  id: {
+    pickKey: 'Pilih private key',
+    saveDir: 'Simpan ke folder',
+    pickUpload: 'Pilih file untuk diunggah',
+    pveNotFound: 'Server Proxmox tidak ditemukan'
+  },
+  en: {
+    pickKey: 'Select a private key',
+    saveDir: 'Save to folder',
+    pickUpload: 'Select files to upload',
+    pveNotFound: 'Proxmox server not found'
+  }
+}
 
 let win: BrowserWindow | null = null
 
@@ -20,7 +37,7 @@ function emit<K extends keyof TermosEvents>(channel: K, payload?: TermosEvents[K
 
 function pve(serverId: string): ReturnType<typeof proxmoxClient> {
   const s = vault.find<ProxmoxServer>('proxmox', serverId)
-  if (!s) throw new Error('Server Proxmox tidak ditemukan')
+  if (!s) throw new Error(tr(S).pveNotFound)
   return proxmoxClient(s)
 }
 
@@ -33,11 +50,15 @@ type Handlers = {
 }
 
 const handlers: Handlers = {
-  vaultStatus: () => ({
-    exists: vault.exists(),
-    unlocked: vault.isUnlocked(),
-    quickUnlock: vault.quickUnlockAvailable()
-  }),
+  vaultStatus: () => {
+    loadLanguage()
+    return {
+      exists: vault.exists(),
+      unlocked: vault.isUnlocked(),
+      quickUnlock: vault.quickUnlockAvailable(),
+      language: getLanguage()
+    }
+  },
   vaultCreate: (pw) => vault.create(pw),
   vaultUnlock: async (pw) => {
     await vault.unlock(pw)
@@ -56,7 +77,11 @@ const handlers: Handlers = {
     return vault.upsert(c, e)
   },
   remove: (c, id) => vault.remove(c, id),
-  updateSettings: (patch) => vault.updateSettings(patch),
+  updateSettings: (patch) => {
+    const out = vault.updateSettings(patch)
+    if (patch.language) persistLanguage(patch.language)
+    return out
+  },
 
   syncStatus: () => sync.status(),
   syncServerInfo: (url) => sync.serverInfo(url),
@@ -89,7 +114,7 @@ const handlers: Handlers = {
   keyImportFile: () =>
     dialog
       .showOpenDialog(win!, {
-        title: 'Pilih private key',
+        title: tr(S).pickKey,
         defaultPath: `${app.getPath('home')}/.ssh`,
         properties: ['openFile', 'showHiddenFiles']
       })
@@ -122,7 +147,7 @@ const handlers: Handlers = {
   sftpDownload: (id: string, items: { path: string; isDir: boolean }[]) =>
     dialog
       .showOpenDialog(win!, {
-        title: 'Simpan ke folder',
+        title: tr(S).saveDir,
         defaultPath: app.getPath('downloads'),
         properties: ['openDirectory', 'createDirectory']
       })
@@ -135,7 +160,7 @@ const handlers: Handlers = {
   sftpUploadDialog: (id: string, remoteDir: string) =>
     dialog
       .showOpenDialog(win!, {
-        title: 'Pilih file untuk diunggah',
+        title: tr(S).pickUpload,
         properties: ['openFile', 'multiSelections', 'showHiddenFiles']
       })
       .then(async (r) => {
