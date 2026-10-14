@@ -4,7 +4,8 @@
 #   Actions tab -> Release -> Run workflow       -> test build only (artifacts, no release)
 #
 # Outputs: .AppImage, .deb, .rpm (Linux x64) and a setup .exe (Windows x64),
-# plus SHA256SUMS and signed build provenance for every file.
+# .dmg per arch (macOS x64 + arm64), a rendered termos-<version>.nix for
+# NixOS, plus SHA256SUMS and signed build provenance for every file.
 
 name: Release
 
@@ -37,11 +38,16 @@ jobs:
               dist/*.AppImage
               dist/*.deb
               dist/*.rpm
+              dist/*.nix
           - name: windows
             os: windows-2022
             builder: --win nsis --x64
             files: |
               dist/*.exe
+          - name: macos
+            os: macos-14
+            files: |
+              dist/*.dmg
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,9 +93,35 @@ jobs:
       - name: Build app
         run: npx electron-vite build
 
+      # npmRebuild is off, so native modules (node-pty, serialport) come from
+      # the postinstall rebuild for the runner's own arch. macOS builds two
+      # arches from one arm64 runner: rebuild the natives per arch, then pack.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          npx electron-builder install-app-deps --arch=arm64
+          npx electron-builder --mac dmg --arm64 --publish never
+          npx electron-builder install-app-deps --arch=x64
+          npx electron-builder --mac dmg --x64 --publish never
+
       - name: Package
+        if: runner.os != 'macOS'
         shell: bash
         run: npx electron-builder ${{ matrix.builder }} --publish never
+
+      # NixOS users install from a rendered Nix expression that pins this
+      # release's .deb by SRI hash (openssl base64 of the sha256 digest).
+      - name: Render Nix package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          DEB="dist/termos-${VERSION}-amd64.deb"
+          HASH="sha256-$(openssl dgst -sha256 -binary "${DEB}" | base64)"
+          sed -e "s/@VERSION@/${VERSION}/g" -e "s|@DEB_HASH@|${HASH}|g" \
+            packaging/nix/termos.nix > "dist/termos-${VERSION}.nix"
+          cat "dist/termos-${VERSION}.nix"
 
       - name: Upload installers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -141,6 +173,8 @@ jobs:
             release/*.deb
             release/*.rpm
             release/*.exe
+            release/*.dmg
+            release/*.nix
             release/SHA256SUMS
           body: |
             ## Unduh
@@ -150,7 +184,10 @@ jobs:
             | Debian / Ubuntu / Kali | `termos-*-amd64.deb` (`sudo apt install ./termos-*-amd64.deb`) |
             | Fedora / RHEL / openSUSE | `termos-*-x86_64.rpm` (`sudo dnf install ./termos-*-x86_64.rpm`) |
             | Linux lain | `termos-*-x86_64.AppImage` (`chmod +x` lalu jalankan) |
+            | NixOS | `termos-*.nix` (`nix-build termos-*.nix` lalu `./result/bin/termos`) |
             | Windows 10/11 | `termos-*-setup-x64.exe` |
+            | macOS 12+ (Intel) | `termos-*-x64.dmg` |
+            | macOS 12+ (Apple Silicon) | `termos-*-arm64.dmg` |
 
             ## Verifikasi file
 
@@ -159,4 +196,6 @@ jobs:
             gh attestation verify <file> --repo ${{ github.repository }}
             ```
 
-            Installer Windows belum ditandatangani (code signing), jadi SmartScreen bisa memberi peringatan.
+            Installer Windows dan DMG macOS belum ditandatangani (code signing), jadi
+            SmartScreen / Gatekeeper bisa memberi peringatan. Di macOS klik kanan
+            aplikasi lalu Open, atau `xattr -d com.apple.quarantine /Applications/Termos.app`.

@@ -32,8 +32,12 @@ nsis:
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize: false
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [x64, arm64]
 dmg:
-  artifactName: termos-${version}.${ext}
+  artifactName: termos-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage

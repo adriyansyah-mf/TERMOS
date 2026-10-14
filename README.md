@@ -110,9 +110,12 @@ Unduh file terbaru dari halaman [Releases](https://github.com/adriyansyah-mf/TER
 | Debian, Ubuntu, Kali, Mint | `termos-<versi>-amd64.deb` | `sudo apt install ./termos-<versi>-amd64.deb` |
 | Fedora, RHEL, Rocky, openSUSE | `termos-<versi>-x86_64.rpm` | `sudo dnf install ./termos-<versi>-x86_64.rpm` (openSUSE: `sudo zypper install ./termos-<versi>-x86_64.rpm`) |
 | Linux lain | `termos-<versi>-x86_64.AppImage` | `chmod +x termos-<versi>-x86_64.AppImage` lalu jalankan |
+| NixOS | `termos-<versi>.nix` | `nix-build termos-<versi>.nix` lalu `./result/bin/termos` |
 | Windows 10/11 (64-bit) | `termos-<versi>-setup-x64.exe` | Jalankan installer |
+| macOS 12+ (Apple Silicon) | `termos-<versi>-arm64.dmg` | Buka DMG, seret Termos ke Applications |
+| macOS 12+ (Intel) | `termos-<versi>-x64.dmg` | Buka DMG, seret Termos ke Applications |
 
-Semua build untuk x86_64 (amd64).
+Linux dan Windows untuk x86_64; macOS tersedia untuk arm64 dan x64.
 
 ### Verifikasi file unduhan
 
@@ -130,6 +133,8 @@ Attestation membuktikan file dibuat oleh workflow di repo ini dari commit yang t
 - Linux: glibc modern (Ubuntu 22.04+, Debian 12+, Fedora 38+, atau setara). Paket `.deb`/`.rpm` otomatis memasang `libsecret`, `nss`, dan `libXtst`.
 - Opsional: `mosh` untuk koneksi Mosh, OpenSSH client (`ssh`) untuk engine OpenSSH, gnome-keyring atau KWallet untuk buka vault tanpa password.
 - Windows: Windows 10 1809 atau lebih baru (ConPTY).
+- macOS: macOS 12 atau lebih baru. DMG belum ditandatangani: klik kanan aplikasi lalu Open saat pertama kali, atau hapus quarantine dengan `xattr -d com.apple.quarantine /Applications/Termos.app`.
+- NixOS: `termos-<versi>.nix` membangun dari paket `.deb` release yang sama (`dpkg` + `autoPatchelfHook`) dan membutuhkan user namespace tanpa privilege (default NixOS) untuk sandbox Chromium; kalau dimatikan di sistemmu, jalankan dengan `termos --no-sandbox`.
 
 ## Mulai pakai
 
