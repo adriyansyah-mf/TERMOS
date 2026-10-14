@@ -36,7 +36,7 @@ Termos jalan di Linux dan Windows. Server sync-nya (opsional) jalan di Docker.
 
 - Tab, dan split sampai 4 panel per tab
 - Pencarian di layar, bersihkan layar, scrollback bisa diatur
-- Tema terminal (Termos Graphite, Dracula, Solarized Dark, One Light) dan ukuran font, bisa berbeda per host
+- Tema untuk seluruh aplikasi — sidebar, tombol, tabel, dialog, ikon menu ikut berubah (Termos Graphite, Termos Ember, Tokyo Night, Catppuccin Mocha, Nord, Dracula, Solarized Dark, One Light). Palet terminal bisa dipilih terpisah per host
 - Sambung ulang satu klik kalau koneksi putus
 - Salin/tempel dengan `Ctrl+Shift+C` / `Ctrl+Shift+V`, atau klik kanan (salin kalau ada seleksi, tempel kalau tidak)
 - Charset per host (UTF-8, Latin-1, dan lain-lain)

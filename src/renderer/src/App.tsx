@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import React from 'react'
 import { useStore, type View } from './store'
 import { fmt, useT } from './i18n'
+import { applyUiTheme } from './themes'
 import { LockScreen } from './components/LockScreen'
 import { SessionRequests, Toasts } from './components/SessionRequests'
 import { TermTab } from './components/TermTab'
@@ -89,16 +91,87 @@ function CurrentView({ view }: { view: View }): React.JSX.Element {
   }
 }
 
+// Line icons inherit currentColor, so they restyle together with the theme.
+const ICONS: Record<View, React.JSX.Element> = {
+  hosts: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="4" width="18" height="7" rx="1.5" />
+      <rect x="3" y="13" width="18" height="7" rx="1.5" />
+      <path d="M7 7.5h.01M7 16.5h.01" />
+    </svg>
+  ),
+  keychain: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <circle cx="7.5" cy="7.5" r="3.5" />
+      <path d="M10 10l10 10M17 17l2.5-2.5M14 14l2.5-2.5" />
+    </svg>
+  ),
+  snippets: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 6h16M4 12h10M4 18h13" />
+    </svg>
+  ),
+  forwards: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M3 12h14M14 8l4 4-4 4M21 5v14" />
+    </svg>
+  ),
+  proxmox: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="3" width="7.5" height="7.5" rx="1" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="1" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="1" />
+      <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1" />
+    </svg>
+  ),
+  knownHosts: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M12 3l7 3v5.5c0 4.6-3 7.7-7 9.5-4-1.8-7-4.9-7-9.5V6z" />
+      <path d="M9 11.5l2.2 2.2L15.5 9.5" />
+    </svg>
+  ),
+  history: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 7.5V12l3.2 2" />
+    </svg>
+  ),
+  sync: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M20 12a8 8 0 1 1-2.4-5.7M20 3.5V8h-4.5" />
+    </svg>
+  ),
+  settings: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M3.5 7H13M18 7h2.5M3.5 17h6M11.5 17h9" />
+      <circle cx="15.5" cy="7" r="2.2" />
+      <circle cx="9" cy="17" r="2.2" />
+    </svg>
+  )
+}
+
 function NavButton({ item, index }: { item: View; index: number }): React.JSX.Element {
   const t = useT(S)
   const active = useStore((s) => s.activeTab === null && s.view === item)
+  const icon = React.cloneElement(ICONS[item], {
+    width: 15,
+    height: 15,
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.7,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round'
+  } as React.SVGProps<SVGSVGElement>)
   return (
     <button
       className={'nav-item' + (active ? ' active' : '')}
       aria-current={active ? 'page' : undefined}
       onClick={() => useStore.getState().setView(item)}
     >
-      {t[item]}
+      <span className="row" style={{ gap: 8 }}>
+        {icon}
+        {t[item]}
+      </span>
       <kbd>Ctrl {index + 1}</kbd>
     </button>
   )
@@ -109,9 +182,15 @@ function Workspace(): React.JSX.Element {
   const view = useStore((s) => s.view)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
+  const theme = useStore((s) => s.data?.settings.theme)
   const { setView, setActiveTab, closeTab, openSession } = useStore.getState()
   const [quick, setQuick] = useState(false)
   const viewLabel = t[view]
+
+  // The whole app chrome (buttons, menus, icons, dialogs) follows the theme.
+  useEffect(() => {
+    if (theme) applyUiTheme(theme)
+  }, [theme])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, Menu, protocol, session } from 'electron'
 import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -60,7 +61,44 @@ app.on('web-contents-created', (_e, contents) => {
   contents.on('will-redirect', (ev) => ev.preventDefault())
 })
 
-function createWindow(): BrowserWindow {
+/** Small frameless window shown from process start until the main UI is ready. */
+function createSplash(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 420,
+    height: 280,
+    show: true,
+    frame: false,
+    resizable: false,
+    fullscreenable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
+    backgroundColor: '#151515',
+    center: true,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+  })
+  const iconData = readFileSync(icon).toString('base64')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+    html,body{margin:0;height:100%;background:#151515;color:#e2dfda;
+      font-family:ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+      -webkit-app-region:no-drag}
+    img{width:96px;height:96px}
+    .name{font-size:26px;letter-spacing:.35em;margin-left:.35em;color:#ece9e4}
+    .bar{width:180px;height:3px;border-radius:2px;background:#2a2a2a;overflow:hidden}
+    .bar i{display:block;height:100%;width:40%;border-radius:2px;background:#e7a43a;
+      animation:slide 1.1s ease-in-out infinite}
+    @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(450%)}}
+  </style></head><body>
+    <img src="data:image/png;base64,${iconData}" alt="">
+    <div class="name">Termos</div>
+    <div class="bar"><i></i></div>
+  </body></html>`
+  void splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  return splash
+}
+
+function createWindow(splash?: BrowserWindow): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -82,7 +120,10 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  mainWindow.on('ready-to-show', () => {
+    splash?.close()
+    mainWindow.show()
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (/^https?:\/\//.test(details.url)) void shell.openExternal(details.url)
@@ -123,8 +164,16 @@ if (!app.requestSingleInstanceLock()) {
       optimizer.watchWindowShortcuts(window)
     })
 
-    const win = createWindow()
+    const splash = createSplash()
+    const win = createWindow(splash)
     registerIpc(win)
+
+    // If the renderer never reports ready (crash, corrupted bundle), do not
+    // leave an immortal splash on screen.
+    setTimeout(() => splash.close(), 10_000).unref()
+    splash.on('closed', () => {
+      if (!win.isDestroyed() && !win.isVisible()) win.show()
+    })
 
     app.on('second-instance', () => {
       if (win.isMinimized()) win.restore()

@@ -299,7 +299,7 @@ button {
   font-weight: 600;
 }
 .btn.primary:hover:not(:disabled) {
-  background: #f0b24e;
+  background: var(--accent-strong);
 }
 .btn.danger {
   color: var(--danger);
@@ -596,7 +596,7 @@ button {
   inset: 26px 0 0;
   display: grid;
   place-items: center;
-  background: rgb(18 18 18 / 78%);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
 }
 .term-toolbar {
   display: flex;
