@@ -16,7 +16,8 @@ function fail(msg: string): never {
   console.error(msg)
   process.exit(1)
 }
-if (!['first', 'open', 'invite'].includes(SIGNUP)) fail('TERMOS_SIGNUP harus first, open, atau invite')
+if (!['first', 'open', 'invite'].includes(SIGNUP))
+  fail('TERMOS_SIGNUP harus first, open, atau invite')
 if (SIGNUP === 'invite' && (env.TERMOS_INVITE_CODE ?? '').length < 16)
   fail('TERMOS_SIGNUP=invite butuh TERMOS_INVITE_CODE minimal 16 karakter')
 
@@ -40,7 +41,13 @@ function clientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? '?'
 }
 
-type Ctx = { req: IncomingMessage; m: RegExpExecArray; url: URL; ip: string; body: () => Promise<Record<string, unknown>> }
+type Ctx = {
+  req: IncomingMessage
+  m: RegExpExecArray
+  url: URL
+  ip: string
+  body: () => Promise<Record<string, unknown>>
+}
 type Route = [string, RegExp, boolean, (c: Ctx, a: Authed) => Promise<unknown> | unknown]
 
 // [method, path, needs auth, handler]
@@ -59,26 +66,49 @@ const routes: Route[] = [
     'GET',
     /^\/api\/sync$/,
     true,
-    (c, a) => app.pull(a, Number(c.url.searchParams.get('since') ?? 0) || 0, c.url.searchParams.get('scope') ?? undefined)
+    (c, a) =>
+      app.pull(
+        a,
+        Number(c.url.searchParams.get('since') ?? 0) || 0,
+        c.url.searchParams.get('scope') ?? undefined
+      )
   ],
   ['POST', /^\/api\/sync$/, true, async (c, a) => app.push(a, await c.body())],
   ['GET', /^\/api\/teams$/, true, (_c, a) => app.teamsOf(a.user.id)],
   ['POST', /^\/api\/teams$/, true, async (c, a) => app.createTeam(a, await c.body())],
   ['DELETE', /^\/api\/teams\/([\w-]+)$/, true, (c, a) => app.deleteTeam(a, c.m[1])],
   ['GET', /^\/api\/teams\/([\w-]+)\/members$/, true, (c, a) => app.members(a, c.m[1])],
-  ['POST', /^\/api\/teams\/([\w-]+)\/members$/, true, async (c, a) => app.addMember(a, c.m[1], await c.body())],
-  ['DELETE', /^\/api\/teams\/([\w-]+)\/members\/([\w-]+)$/, true, (c, a) => app.removeMember(a, c.m[1], c.m[2])],
+  [
+    'POST',
+    /^\/api\/teams\/([\w-]+)\/members$/,
+    true,
+    async (c, a) => app.addMember(a, c.m[1], await c.body())
+  ],
+  [
+    'DELETE',
+    /^\/api\/teams\/([\w-]+)\/members\/([\w-]+)$/,
+    true,
+    (c, a) => app.removeMember(a, c.m[1], c.m[2])
+  ],
   ['GET', /^\/api\/users\/([\w.-]+)\/key$/, true, (c) => app.publicKeyOf(c.m[1])]
 ]
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const route = routes.find(([method, re]) => method === req.method && re.test(url.pathname))
-  if (!route) return send(res, routes.some(([, re]) => re.test(url.pathname)) ? 405 : 404, { error: 'Tidak ditemukan' })
+  if (!route)
+    return send(res, routes.some(([, re]) => re.test(url.pathname)) ? 405 : 404, {
+      error: 'Tidak ditemukan'
+    })
   const [, re, needsAuth, fn] = route
   try {
-    const a = needsAuth ? await app.authenticate(req.headers.authorization) : (undefined as unknown as Authed)
-    const out = await fn({ req, m: re.exec(url.pathname)!, url, ip: clientIp(req), body: () => readBody(req) }, a)
+    const a = needsAuth
+      ? await app.authenticate(req.headers.authorization)
+      : (undefined as unknown as Authed)
+    const out = await fn(
+      { req, m: re.exec(url.pathname)!, url, ip: clientIp(req), body: () => readBody(req) },
+      a
+    )
     send(res, 200, out ?? { ok: true })
   } catch (err) {
     if (err instanceof HttpError) send(res, err.status, { error: err.message })

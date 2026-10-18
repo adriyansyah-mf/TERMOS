@@ -58,7 +58,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // ── input validation ────────────────────────────────────────────────────────
 
 function str(v: unknown, name: string, max = 20000): string {
-  if (typeof v !== 'string' || !v || v.length > max) throw new HttpError(400, `Field "${name}" tidak valid`)
+  if (typeof v !== 'string' || !v || v.length > max)
+    throw new HttpError(400, `Field "${name}" tidak valid`)
   return v
 }
 
@@ -72,7 +73,8 @@ function b64(v: unknown, name: string, bytes: number): string {
 
 /** An encrypted box from the client: only these string fields, bounded. */
 function box(v: unknown, name: string, fields: string[], max = 4096): Record<string, string> {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `Field "${name}" tidak valid`)
+  if (!v || typeof v !== 'object' || Array.isArray(v))
+    throw new HttpError(400, `Field "${name}" tidak valid`)
   const out: Record<string, string> = {}
   for (const f of fields) out[f] = str((v as Record<string, unknown>)[f], `${name}.${f}`, max)
   return out
@@ -85,7 +87,12 @@ function kdf(v: unknown): Record<string, unknown> {
   const m = Number(k.m)
   const t = Number(k.t)
   const p = Number(k.p)
-  if (k.alg !== 'argon2id' || !(m >= 65536 && m <= 1048576) || !(t >= 3 && t <= 20) || !(p >= 1 && p <= 8))
+  if (
+    k.alg !== 'argon2id' ||
+    !(m >= 65536 && m <= 1048576) ||
+    !(t >= 3 && t <= 20) ||
+    !(p >= 1 && p <= 8)
+  )
     throw new HttpError(400, 'Parameter KDF terlalu lemah atau tidak valid')
   return { alg: 'argon2id', salt: b64(k.salt, 'kdf.salt', 16), m, t, p }
 }
@@ -99,7 +106,8 @@ function uuid(v: unknown, name: string): string {
 export async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (req.method !== 'GET' && req.method !== 'DELETE') {
     const type = req.headers['content-type'] ?? ''
-    if (!type.startsWith('application/json')) throw new HttpError(415, 'Content-Type harus application/json')
+    if (!type.startsWith('application/json'))
+      throw new HttpError(415, 'Content-Type harus application/json')
   }
   const chunks: Buffer[] = []
   let size = 0
@@ -134,7 +142,9 @@ export function send(res: ServerResponse, status: number, body: unknown): void {
 
 export async function loadSecret(db: DB): Promise<string> {
   const fresh = randomBytes(32).toString('base64')
-  await db.query("INSERT INTO meta(key, value) VALUES('secret', $1) ON CONFLICT (key) DO NOTHING", [fresh])
+  await db.query("INSERT INTO meta(key, value) VALUES('secret', $1) ON CONFLICT (key) DO NOTHING", [
+    fresh
+  ])
   const r = await db.query<{ value: string }>("SELECT value FROM meta WHERE key = 'secret'")
   return r.rows[0].value
 }
@@ -172,9 +182,11 @@ export class App {
       await this.db.query('DELETE FROM devices WHERE id = $1', [d.id])
       throw new HttpError(401, 'Sesi kedaluwarsa karena lama tidak dipakai, login lagi')
     }
-    const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE id = $1', [d.user_id])).rows[0]
+    const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE id = $1', [d.user_id]))
+      .rows[0]
     // Avoid a write per request; a minute of precision is enough for idle expiry.
-    if (now - d.last_seen > 60_000) await this.db.query('UPDATE devices SET last_seen = $1 WHERE id = $2', [now, d.id])
+    if (now - d.last_seen > 60_000)
+      await this.db.query('UPDATE devices SET last_seen = $1 WHERE id = $2', [now, d.id])
     return { user, deviceId: d.id }
   }
 
@@ -187,15 +199,25 @@ export class App {
   async prelogin(body: Record<string, unknown>, ip: string): Promise<{ kdf: unknown }> {
     if (this.preloginLimit.take(ip)) throw new HttpError(429, 'Terlalu banyak permintaan')
     const username = str(body.username, 'username', 64)
-    const r = await this.db.query<{ kdf: unknown }>('SELECT kdf FROM users WHERE lower(username) = lower($1)', [username])
+    const r = await this.db.query<{ kdf: unknown }>(
+      'SELECT kdf FROM users WHERE lower(username) = lower($1)',
+      [username]
+    )
     return { kdf: r.rows[0]?.kdf ?? fakeKdf(this.cfg.secret, username) }
   }
 
-  private async issueDevice(c: DB | import('./db.ts').Tx, userId: string, deviceName: unknown): Promise<{ token: string; deviceId: string }> {
+  private async issueDevice(
+    c: DB | import('./db.ts').Tx,
+    userId: string,
+    deviceName: unknown
+  ): Promise<{ token: string; deviceId: string }> {
     const { token, hash } = newToken()
     const deviceId = randomUUID()
     const now = Date.now()
-    const name = typeof deviceName === 'string' && deviceName.trim() ? deviceName.trim().slice(0, 80) : 'Perangkat'
+    const name =
+      typeof deviceName === 'string' && deviceName.trim()
+        ? deviceName.trim().slice(0, 80)
+        : 'Perangkat'
     await c.query(
       'INSERT INTO devices(id, user_id, name, token_hash, created_at, last_seen) VALUES($1,$2,$3,$4,$5,$6)',
       [deviceId, userId, name, hash, now, now]
@@ -204,7 +226,8 @@ export class App {
   }
 
   async register(body: Record<string, unknown>, ip: string): Promise<Record<string, unknown>> {
-    if (this.signupLimit.take(ip)) throw new HttpError(429, 'Terlalu banyak pendaftaran dari alamat ini')
+    if (this.signupLimit.take(ip))
+      throw new HttpError(429, 'Terlalu banyak pendaftaran dari alamat ini')
     const username = str(body.username, 'username', 40)
     if (!USERNAME.test(username))
       throw new HttpError(400, 'Username 3-40 karakter: huruf, angka, titik, minus, garis bawah')
@@ -220,9 +243,13 @@ export class App {
       await c.query('SELECT pg_advisory_xact_lock(4244)')
       const n = (await c.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM users')).rows[0].n
       const mode = this.cfg.signup
-      if (mode === 'first' && n > 0) throw new HttpError(403, 'Pendaftaran ditutup. Minta admin server membuatkan akun.')
-      if (mode === 'invite' && body.inviteCode !== this.cfg.inviteCode) throw new HttpError(403, 'Kode undangan salah')
-      const taken = await c.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [username])
+      if (mode === 'first' && n > 0)
+        throw new HttpError(403, 'Pendaftaran ditutup. Minta admin server membuatkan akun.')
+      if (mode === 'invite' && body.inviteCode !== this.cfg.inviteCode)
+        throw new HttpError(403, 'Kode undangan salah')
+      const taken = await c.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [
+        username
+      ])
       if (taken.rowCount) throw new HttpError(409, 'Username sudah dipakai')
       const id = randomUUID()
       await c.query(
@@ -241,8 +268,14 @@ export class App {
     const userKey = `${ip}|${username.toLowerCase()}`
     if (this.loginUserLimit.blocked(userKey) || this.loginIpLimit.blocked(ip))
       throw new HttpError(429, 'Terlalu banyak percobaan. Coba lagi 15 menit lagi.')
-    const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE lower(username) = lower($1)', [username])).rows[0]
-    const ok = user ? await verifyAuthKey(authKey, user.auth_hash, user.auth_salt) : await verifyAgainstDummy(authKey)
+    const user = (
+      await this.db.query<UserRow>('SELECT * FROM users WHERE lower(username) = lower($1)', [
+        username
+      ])
+    ).rows[0]
+    const ok = user
+      ? await verifyAuthKey(authKey, user.auth_hash, user.auth_salt)
+      : await verifyAgainstDummy(authKey)
     if (!ok) {
       this.loginUserLimit.hit(userKey)
       this.loginIpLimit.hit(ip)
@@ -276,7 +309,8 @@ export class App {
 
   private async reauth(a: Authed, authKey: unknown): Promise<void> {
     const key = b64(authKey, 'authKey', 32)
-    if (this.loginUserLimit.blocked(`reauth|${a.user.id}`)) throw new HttpError(429, 'Terlalu banyak percobaan')
+    if (this.loginUserLimit.blocked(`reauth|${a.user.id}`))
+      throw new HttpError(429, 'Terlalu banyak percobaan')
     if (!(await verifyAuthKey(key, a.user.auth_hash, a.user.auth_salt))) {
       this.loginUserLimit.hit(`reauth|${a.user.id}`)
       throw new HttpError(403, 'Password akun salah')
@@ -303,8 +337,11 @@ export class App {
   async deleteAccount(a: Authed, body: Record<string, unknown>): Promise<void> {
     await this.reauth(a, body.authKey)
     await withTx(this.db, async (c) => {
-      const owned = await c.query<{ id: string }>('SELECT id FROM teams WHERE owner_id = $1', [a.user.id])
-      for (const t of owned.rows) await c.query('DELETE FROM records WHERE scope = $1', [`t:${t.id}`])
+      const owned = await c.query<{ id: string }>('SELECT id FROM teams WHERE owner_id = $1', [
+        a.user.id
+      ])
+      for (const t of owned.rows)
+        await c.query('DELETE FROM records WHERE scope = $1', [`t:${t.id}`])
       await c.query('DELETE FROM records WHERE scope = $1', [`u:${a.user.id}`])
       await c.query('DELETE FROM users WHERE id = $1', [a.user.id])
     })
@@ -319,18 +356,28 @@ export class App {
   }
 
   async revokeDevice(a: Authed, id: string): Promise<void> {
-    await this.db.query('DELETE FROM devices WHERE id = $1 AND user_id = $2', [uuid(id, 'id'), a.user.id])
+    await this.db.query('DELETE FROM devices WHERE id = $1 AND user_id = $2', [
+      uuid(id, 'id'),
+      a.user.id
+    ])
   }
 
   // ── sync ────────────────────────────────────────────────────────────────
 
   private async scopesOf(userId: string): Promise<string[]> {
-    const teams = await this.db.query<{ team_id: string }>('SELECT team_id FROM team_members WHERE user_id = $1', [userId])
+    const teams = await this.db.query<{ team_id: string }>(
+      'SELECT team_id FROM team_members WHERE user_id = $1',
+      [userId]
+    )
     return [`u:${userId}`, ...teams.rows.map((t) => `t:${t.team_id}`)]
   }
 
   /** `only` limits the pull to one scope, used to backfill a team the user just joined. */
-  async pull(a: Authed, since: number, only?: string): Promise<{ records: unknown[]; cursor: number }> {
+  async pull(
+    a: Authed,
+    since: number,
+    only?: string
+  ): Promise<{ records: unknown[]; cursor: number }> {
     let scopes = await this.scopesOf(a.user.id)
     if (only) {
       if (!scopes.includes(only)) throw new HttpError(403, 'Tidak punya akses ke vault ini')
@@ -347,16 +394,21 @@ export class App {
     return { records: r.rows, cursor }
   }
 
-  async push(a: Authed, body: Record<string, unknown>): Promise<{ accepted: number; stale: string[] }> {
+  async push(
+    a: Authed,
+    body: Record<string, unknown>
+  ): Promise<{ accepted: number; stale: string[] }> {
     const list = body.records
-    if (!Array.isArray(list) || list.length > 5000) throw new HttpError(400, 'records harus array (maks 5000)')
+    if (!Array.isArray(list) || list.length > 5000)
+      throw new HttpError(400, 'records harus array (maks 5000)')
     const allowed = new Set(await this.scopesOf(a.user.id))
     const rows = (list as Record<string, unknown>[]).map((r) => {
       const scope = str(r.scope, 'scope', 80)
       if (!allowed.has(scope)) throw new HttpError(403, 'Tidak punya akses ke vault ini')
       const id = str(r.id, 'id', 80)
       const updatedAt = Number(r.updatedAt)
-      if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) throw new HttpError(400, 'updatedAt tidak valid')
+      if (!Number.isSafeInteger(updatedAt) || updatedAt < 0)
+        throw new HttpError(400, 'updatedAt tidak valid')
       const blob = str(r.blob, 'blob', 2 * 1024 * 1024)
       return { scope, id, updatedAt, deleted: !!r.deleted, blob }
     })
@@ -407,11 +459,19 @@ export class App {
   async createTeam(a: Authed, body: Record<string, unknown>): Promise<{ id: string }> {
     const name = str(body.name, 'name', 80).trim()
     const wrapped = box(body.wrappedTeamKey, 'wrappedTeamKey', ['epk', 'nonce', 'ct'])
-    const count = await this.db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM teams WHERE owner_id = $1', [a.user.id])
+    const count = await this.db.query<{ n: number }>(
+      'SELECT COUNT(*)::int AS n FROM teams WHERE owner_id = $1',
+      [a.user.id]
+    )
     if (count.rows[0].n >= 50) throw new HttpError(400, 'Maksimal 50 tim per akun')
     const id = randomUUID()
     await withTx(this.db, async (c) => {
-      await c.query('INSERT INTO teams(id, name, owner_id, created_at) VALUES($1,$2,$3,$4)', [id, name, a.user.id, Date.now()])
+      await c.query('INSERT INTO teams(id, name, owner_id, created_at) VALUES($1,$2,$3,$4)', [
+        id,
+        name,
+        a.user.id,
+        Date.now()
+      ])
       await c.query(
         'INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES($1,$2,$3,$4,$5)',
         [id, a.user.id, 'owner', wrapped, Date.now()]
@@ -421,10 +481,10 @@ export class App {
   }
 
   private async roleIn(a: Authed, teamId: string): Promise<string | undefined> {
-    const r = await this.db.query<{ role: string }>('SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2', [
-      teamId,
-      a.user.id
-    ])
+    const r = await this.db.query<{ role: string }>(
+      'SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2',
+      [teamId, a.user.id]
+    )
     return r.rows[0]?.role
   }
 
@@ -435,7 +495,8 @@ export class App {
   }
 
   async members(a: Authed, teamId: string): Promise<unknown[]> {
-    if (!(await this.roleIn(a, uuid(teamId, 'teamId')))) throw new HttpError(404, 'Tim tidak ditemukan')
+    if (!(await this.roleIn(a, uuid(teamId, 'teamId'))))
+      throw new HttpError(404, 'Tim tidak ditemukan')
     const r = await this.db.query(
       `SELECT u.id AS "userId", u.username, u.public_key AS "publicKey", m.role, m.added_at AS "addedAt"
        FROM team_members m JOIN users u ON u.id = m.user_id WHERE m.team_id = $1 ORDER BY u.username`,
@@ -444,7 +505,9 @@ export class App {
     return r.rows
   }
 
-  async publicKeyOf(username: string): Promise<{ userId: string; username: string; publicKey: string }> {
+  async publicKeyOf(
+    username: string
+  ): Promise<{ userId: string; username: string; publicKey: string }> {
     const r = await this.db.query<{ id: string; username: string; public_key: string }>(
       'SELECT id, username, public_key FROM users WHERE lower(username) = lower($1)',
       [username]
@@ -460,7 +523,10 @@ export class App {
     const wrapped = box(body.wrappedTeamKey, 'wrappedTeamKey', ['epk', 'nonce', 'ct'])
     const exists = await this.db.query('SELECT 1 FROM users WHERE id = $1', [userId])
     if (!exists.rowCount) throw new HttpError(404, 'User tidak ada')
-    const count = await this.db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1', [teamId])
+    const count = await this.db.query<{ n: number }>(
+      'SELECT COUNT(*)::int AS n FROM team_members WHERE team_id = $1',
+      [teamId]
+    )
     if (count.rows[0].n >= 200) throw new HttpError(400, 'Maksimal 200 anggota per tim')
     await this.db.query(
       `INSERT INTO team_members(team_id, user_id, role, wrapped_team_key, added_at) VALUES($1,$2,'member',$3,$4)
@@ -477,8 +543,12 @@ export class App {
       'SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2',
       [teamId, userId]
     )
-    if (target.rows[0]?.role === 'owner') throw new HttpError(400, 'Pemilik tidak bisa dikeluarkan; hapus timnya')
-    await this.db.query('DELETE FROM team_members WHERE team_id = $1 AND user_id = $2', [teamId, userId])
+    if (target.rows[0]?.role === 'owner')
+      throw new HttpError(400, 'Pemilik tidak bisa dikeluarkan; hapus timnya')
+    await this.db.query('DELETE FROM team_members WHERE team_id = $1 AND user_id = $2', [
+      teamId,
+      userId
+    ])
   }
 
   async deleteTeam(a: Authed, teamId: string): Promise<void> {
