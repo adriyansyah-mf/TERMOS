@@ -1,6 +1,6 @@
 {
   "name": "termos-server",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Self-hosted sync, team vault and session-sharing server for Termos",
   "private": true,
   "type": "module",

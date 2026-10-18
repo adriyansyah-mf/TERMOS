@@ -55,7 +55,7 @@ services:
   api:
     <<: *hardening
     build: .
-    image: termos-server:0.2.0
+    image: termos-server:0.2.1
     init: true
     depends_on:
       db:

@@ -10,7 +10,7 @@ const HOST = env.TERMOS_HOST ?? '0.0.0.0'
 const SIGNUP = (env.TERMOS_SIGNUP ?? 'first') as Config['signup']
 // Behind a reverse proxy the client IP comes from X-Forwarded-For; only trust it when told to.
 const TRUST_PROXY = env.TERMOS_TRUST_PROXY === '1'
-const VERSION = '0.2.0'
+const VERSION = '0.2.1'
 
 function fail(msg: string): never {
   console.error(msg)
@@ -35,8 +35,11 @@ const relay = new Relay()
 
 function clientIp(req: IncomingMessage): string {
   if (TRUST_PROXY) {
+    // Proxies append the address they saw; anything before it came from the client and
+    // could be forged to dodge rate limits. The last entry is the one our proxy wrote.
     const fwd = req.headers['x-forwarded-for']
-    if (typeof fwd === 'string') return fwd.split(',')[0].trim()
+    const last = typeof fwd === 'string' ? fwd.split(',').at(-1)?.trim() : undefined
+    if (last) return last
   }
   return req.socket.remoteAddress ?? '?'
 }
@@ -127,8 +130,11 @@ server.keepAliveTimeout = 5_000
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 512 * 1024 })
 server.on('upgrade', (req, socket, head) => {
+  // The HTTP server stops watching the socket once it is handed to 'upgrade'; a client that
+  // resets now would otherwise raise an unhandled 'error' and stop the process.
+  socket.on('error', () => socket.destroy())
   const reject = (code: number, text: string): void => {
-    socket.write(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\n\r\n`)
+    if (socket.writable) socket.write(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\n\r\n`)
     socket.destroy()
   }
   // Termos connects without an Origin header; a browser page always sends one.
@@ -137,11 +143,14 @@ server.on('upgrade', (req, socket, head) => {
   const join = /^\/api\/share\/join\/([\w-]{16,40})$/.exec(url.pathname)
   if (url.pathname !== '/api/share/host' && !join) return reject(404, 'Not Found')
   app.authenticate(req.headers.authorization).then(
-    ({ user }) =>
+    ({ user }) => {
+      if (socket.destroyed) return
       wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on('error', () => {})
         if (join) relay.join(ws, join[1], user.username)
         else relay.host(ws, user.id)
-      }),
+      })
+    },
     () => reject(401, 'Unauthorized')
   )
 })
@@ -150,8 +159,23 @@ server.listen(PORT, HOST, () => {
   console.log(`termos-server ${VERSION} listening on ${HOST}:${PORT} (signup ${SIGNUP})`)
 })
 
+// Expired device tokens are refused on use; this also clears the ones nobody uses again.
+setInterval(
+  () => void app.sweepDevices().catch((err) => console.error('device sweep:', err)),
+  3_600_000
+).unref()
+
+process.on('unhandledRejection', (err) => console.error('unhandled rejection:', err))
+
+let stopping = false
 const stop = (): void => {
+  if (stopping) return
+  stopping = true
+  relay.closeAll()
   server.close()
+  server.closeIdleConnections()
+  // Do not hang forever on a client that keeps a request open.
+  setTimeout(() => process.exit(0), 5_000).unref()
   void db.end().finally(() => process.exit(0))
 }
 process.on('SIGINT', stop)

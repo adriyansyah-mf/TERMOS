@@ -30,11 +30,26 @@ const MAX_VIEWERS = 16
 const MAX_SHARES_PER_USER = 5
 /** Frames per peer per second; terminal output is chunked, so this is generous. */
 const MAX_RATE = 400
+/** A viewer this far behind is not keeping up; drop it instead of buffering without bound. */
+const MAX_BUFFERED = 4 * 1024 * 1024
 
 function peer(ws: WebSocket): Peer {
   const p: Peer = { ws, alive: true, window: Date.now(), count: 0 }
   ws.on('pong', () => (p.alive = true))
+  // Protocol errors (oversized or malformed frames) arrive as 'error' events; without a
+  // listener they would be thrown and take the whole server down. ws closes the socket itself.
+  ws.on('error', () => {})
   return p
+}
+
+/** Send only to open sockets, and cut off a peer whose send buffer keeps growing. */
+function deliver(p: Peer, frame: string): void {
+  if (p.ws.readyState !== p.ws.OPEN) return
+  if (p.ws.bufferedAmount > MAX_BUFFERED) {
+    p.ws.terminate()
+    return
+  }
+  p.ws.send(frame)
 }
 
 /** Drop the connection if it floods; returns false when the frame must be ignored. */
@@ -98,9 +113,10 @@ export class Relay {
       if (!msg) return
       if (msg.t === 'out' && typeof msg.data === 'string') {
         const frame = JSON.stringify({ t: 'data', data: msg.data })
-        for (const v of share.viewers.values()) v.ws.send(frame)
+        for (const v of share.viewers.values()) deliver(v, frame)
       } else if (msg.t === 'to' && typeof msg.viewer === 'string' && typeof msg.data === 'string') {
-        share.viewers.get(msg.viewer)?.ws.send(JSON.stringify({ t: 'data', data: msg.data }))
+        const v = share.viewers.get(msg.viewer)
+        if (v) deliver(v, JSON.stringify({ t: 'data', data: msg.data }))
       } else if (msg.t === 'kick' && typeof msg.viewer === 'string') {
         share.viewers.get(msg.viewer)?.ws.close(4003, 'Dikeluarkan oleh host')
       }
@@ -108,7 +124,7 @@ export class Relay {
     ws.on('close', () => {
       this.shares.delete(shareId)
       for (const v of share.viewers.values()) {
-        v.ws.send(JSON.stringify({ t: 'ended' }))
+        deliver(v, JSON.stringify({ t: 'ended' }))
         v.ws.close(1000, 'Sesi selesai')
       }
     })
@@ -127,23 +143,28 @@ export class Relay {
     const viewer = randomBytes(9).toString('base64url')
     const p = { ...peer(ws), username }
     share.viewers.set(viewer, p)
-    share.host.ws.send(JSON.stringify({ t: 'joined', viewer, username }))
+    deliver(share.host, JSON.stringify({ t: 'joined', viewer, username }))
 
     ws.on('message', (raw: Buffer) => {
       if (!admit(p, raw.length)) return
       const msg = parse(raw)
       // The host decides whether viewer input is allowed; the relay only forwards.
       if (msg?.t === 'in' && typeof msg.data === 'string')
-        share.host.ws.send(JSON.stringify({ t: 'from', viewer, data: msg.data }))
+        deliver(share.host, JSON.stringify({ t: 'from', viewer, data: msg.data }))
     })
     ws.on('close', () => {
       share.viewers.delete(viewer)
-      if (share.host.ws.readyState === share.host.ws.OPEN)
-        share.host.ws.send(JSON.stringify({ t: 'left', viewer }))
+      deliver(share.host, JSON.stringify({ t: 'left', viewer }))
     })
   }
 
   count(): number {
     return this.shares.size
+  }
+
+  /** Graceful shutdown: tell everyone the relay is going away. */
+  closeAll(): void {
+    for (const s of this.shares.values())
+      for (const p of [s.host, ...s.viewers.values()]) p.ws.close(1001, 'Server berhenti')
   }
 }

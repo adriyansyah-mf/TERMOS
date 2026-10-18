@@ -52,6 +52,8 @@ export class HttpError extends Error {
 }
 
 const MAX_BODY = 16 * 1024 * 1024
+/** Logging in again and again must not grow the devices table without bound. */
+const MAX_DEVICES = 50
 const USERNAME = /^[a-zA-Z0-9._-]{3,40}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -184,6 +186,8 @@ export class App {
     }
     const user = (await this.db.query<UserRow>('SELECT * FROM users WHERE id = $1', [d.user_id]))
       .rows[0]
+    // The account can be deleted between the two queries.
+    if (!user) throw new HttpError(401, 'Sesi tidak berlaku, login lagi')
     // Avoid a write per request; a minute of precision is enough for idle expiry.
     if (now - d.last_seen > 60_000)
       await this.db.query('UPDATE devices SET last_seen = $1 WHERE id = $2', [now, d.id])
@@ -222,7 +226,21 @@ export class App {
       'INSERT INTO devices(id, user_id, name, token_hash, created_at, last_seen) VALUES($1,$2,$3,$4,$5,$6)',
       [deviceId, userId, name, hash, now, now]
     )
+    // Keep the most recently used devices; the oldest ones have to log in again.
+    await c.query(
+      `DELETE FROM devices WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM devices WHERE user_id = $1 ORDER BY last_seen DESC, created_at DESC LIMIT $2)`,
+      [userId, MAX_DEVICES]
+    )
     return { token, deviceId }
+  }
+
+  /** Remove device tokens that have been idle past the expiry window. */
+  async sweepDevices(): Promise<number> {
+    const r = await this.db.query('DELETE FROM devices WHERE last_seen < $1', [
+      Date.now() - this.cfg.tokenIdleMs
+    ])
+    return r.rowCount ?? 0
   }
 
   async register(body: Record<string, unknown>, ip: string): Promise<Record<string, unknown>> {
@@ -458,6 +476,7 @@ export class App {
 
   async createTeam(a: Authed, body: Record<string, unknown>): Promise<{ id: string }> {
     const name = str(body.name, 'name', 80).trim()
+    if (!name) throw new HttpError(400, 'Nama tim tidak boleh kosong')
     const wrapped = box(body.wrappedTeamKey, 'wrappedTeamKey', ['epk', 'nonce', 'ct'])
     const count = await this.db.query<{ n: number }>(
       'SELECT COUNT(*)::int AS n FROM teams WHERE owner_id = $1',
