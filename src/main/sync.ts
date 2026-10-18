@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { hostname } from 'node:os'
+import type { AdminOverview, SignupMode } from '../shared/api'
 import {
   SYNCED_COLLECTIONS,
   type CollectionName,
@@ -53,6 +54,7 @@ const S = {
 export interface SyncStatus {
   connected: boolean
   serverUrl: string
+  userId?: string
   username?: string
   isAdmin?: boolean
   lastSyncAt?: number
@@ -171,6 +173,7 @@ class SyncService extends EventEmitter {
     return {
       connected: !!s.token,
       serverUrl: s.serverUrl,
+      userId: s.userId,
       username: s.username,
       isAdmin: s.isAdmin,
       lastSyncAt: s.lastSyncAt,
@@ -333,6 +336,39 @@ class SyncService extends EventEmitter {
 
   revokeDevice(id: string): Promise<void> {
     return this.call('DELETE', `/devices/${encodeURIComponent(id)}`)
+  }
+
+  // ── server administration ─────────────────────────────────────────────
+
+  adminOverview(): Promise<AdminOverview> {
+    return this.call('GET', '/admin')
+  }
+
+  adminSetSignup(mode: SignupMode | null): Promise<void> {
+    return this.call('PUT', '/admin/signup', { mode })
+  }
+
+  adminCreateInvite(
+    hours: number,
+    note: string
+  ): Promise<{ id: string; code: string; expiresAt: number }> {
+    return this.call('POST', '/admin/invites', { hours, note })
+  }
+
+  adminRevokeInvite(id: string): Promise<void> {
+    return this.call('DELETE', `/admin/invites/${encodeURIComponent(id)}`)
+  }
+
+  adminDeleteUser(userId: string): Promise<void> {
+    return this.call('DELETE', `/admin/users/${encodeURIComponent(userId)}`)
+  }
+
+  adminRevokeDevices(userId: string): Promise<void> {
+    return this.call('DELETE', `/admin/users/${encodeURIComponent(userId)}/devices`)
+  }
+
+  async adminSetAdmin(userId: string, isAdmin: boolean): Promise<void> {
+    await this.call('PUT', `/admin/users/${encodeURIComponent(userId)}/admin`, { isAdmin })
   }
 
   // ── teams ─────────────────────────────────────────────────────────────

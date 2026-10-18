@@ -93,7 +93,24 @@ const routes: Route[] = [
     true,
     (c, a) => app.removeMember(a, c.m[1], c.m[2])
   ],
-  ['GET', /^\/api\/users\/([\w.-]+)\/key$/, true, (c) => app.publicKeyOf(c.m[1])]
+  ['GET', /^\/api\/users\/([\w.-]+)\/key$/, true, (c) => app.publicKeyOf(c.m[1])],
+  ['GET', /^\/api\/admin$/, true, (_c, a) => app.adminOverview(a)],
+  ['PUT', /^\/api\/admin\/signup$/, true, async (c, a) => app.setSignup(a, await c.body())],
+  ['POST', /^\/api\/admin\/invites$/, true, async (c, a) => app.createInvite(a, await c.body())],
+  ['DELETE', /^\/api\/admin\/invites\/([\w-]+)$/, true, (c, a) => app.revokeInvite(a, c.m[1])],
+  ['DELETE', /^\/api\/admin\/users\/([\w-]+)$/, true, (c, a) => app.adminDeleteUser(a, c.m[1])],
+  [
+    'DELETE',
+    /^\/api\/admin\/users\/([\w-]+)\/devices$/,
+    true,
+    (c, a) => app.adminRevokeDevices(a, c.m[1])
+  ],
+  [
+    'PUT',
+    /^\/api\/admin\/users\/([\w-]+)\/admin$/,
+    true,
+    async (c, a) => app.adminSetAdmin(a, c.m[1], await c.body())
+  ]
 ]
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -12,13 +12,13 @@ before(async () => {
 })
 after(() => srv.stop())
 
-test('first account registers and becomes admin; signup then closes', async () => {
+test('first account registers and becomes admin; signup then needs an invite', async () => {
   const r = await srv.call('POST', '/api/register', account('alice'))
   assert.equal(r.status, 200, JSON.stringify(r.body))
   assert.equal(r.body.isAdmin, true)
   state.alice = r.body
   assert.equal((await srv.call('POST', '/api/register', account('bob'))).status, 403)
-  assert.equal((await srv.call('GET', '/api/status')).body.signup, 'closed')
+  assert.equal((await srv.call('GET', '/api/status')).body.signup, 'invite')
 })
 
 test('login checks the auth key and returns the wrapped key material', async () => {

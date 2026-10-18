@@ -16,6 +16,7 @@ import type {
 export interface SyncStatus {
   connected: boolean
   serverUrl: string
+  userId?: string
   username?: string
   isAdmin?: boolean
   lastSyncAt?: number
@@ -38,6 +39,43 @@ export interface SyncDevice {
   createdAt: number
   lastSeen: number
   current: boolean
+}
+
+export type SignupMode = 'open' | 'invite' | 'closed'
+
+export interface AdminUser {
+  id: string
+  username: string
+  isAdmin: boolean
+  createdAt: number
+  devices: number
+  lastSeen: number | null
+  /** Personal vault usage; contents stay encrypted and are never sent. */
+  records: number
+  bytes: number
+  teamsOwned: number
+  current: boolean
+}
+
+export interface AdminInvite {
+  id: string
+  note: string
+  createdAt: number
+  expiresAt: number
+  usedAt: number | null
+  usedBy: string | null
+  createdBy: string | null
+}
+
+export interface AdminOverview {
+  signup: SignupMode
+  /** null: follows TERMOS_SIGNUP on the server. */
+  signupSetting: SignupMode | null
+  envSignup: string
+  maxRecords: number
+  maxBytes: number
+  users: AdminUser[]
+  invites: AdminInvite[]
 }
 
 export interface VaultStatus {
@@ -114,6 +152,14 @@ export interface TermosApi {
   teamAddMember(teamId: string, username: string, fingerprint: string): void
   teamRemoveMember(teamId: string, userId: string): void
   teamDelete(teamId: string): void
+
+  adminOverview(): AdminOverview
+  adminSetSignup(mode: SignupMode | null): void
+  adminCreateInvite(hours: number, note: string): { id: string; code: string; expiresAt: number }
+  adminRevokeInvite(id: string): void
+  adminDeleteUser(userId: string): void
+  adminRevokeDevices(userId: string): void
+  adminSetAdmin(userId: string, isAdmin: boolean): void
 
   shareStart(sessionId: string, allowInput: boolean): ShareInfo
   shareStop(sessionId: string): void
