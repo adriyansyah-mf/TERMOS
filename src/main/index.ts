@@ -121,7 +121,8 @@ function createWindow(splash?: BrowserWindow): BrowserWindow {
   })
 
   mainWindow.on('ready-to-show', () => {
-    splash?.close()
+    // The failsafe timer may already have closed the splash on a slow start.
+    if (splash && !splash.isDestroyed()) splash.close()
     mainWindow.show()
   })
 
@@ -188,7 +189,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => shutdown())
 
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
-  })
+  // There is a single main window and IPC is bound to it, so closing it ends the app on
+  // every platform (on macOS nothing could reopen it, leaving a dock icon with no window).
+  app.on('window-all-closed', () => app.quit())
 }

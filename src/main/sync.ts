@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { hostname } from 'node:os'
+import type { AdminOverview, SignupMode } from '../shared/api'
 import {
   SYNCED_COLLECTIONS,
   type CollectionName,
@@ -53,6 +54,7 @@ const S = {
 export interface SyncStatus {
   connected: boolean
   serverUrl: string
+  userId?: string
   username?: string
   isAdmin?: boolean
   lastSyncAt?: number
@@ -92,7 +94,20 @@ interface Payload {
   e: Entity | null
 }
 
-const PRIVATE_V4 = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/
+/** A literal private IPv4 address. Anchored at both ends: `10.evil.com` is a public name. */
+function isPrivateV4(h: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (!m) return false
+  const [a, b] = [Number(m[1]), Number(m[2])]
+  if (m.slice(1).some((x) => Number(x) > 255)) return false
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 169 && b === 254)
+  )
+}
 
 /** Associated data that pins a record's ciphertext to where and when it was written. */
 function recordAad(scope: string, id: string, updatedAt: number, deleted: boolean): string {
@@ -109,7 +124,7 @@ export function normalizeServerUrl(input: string): string {
     const local =
       h === 'localhost' ||
       h === '[::1]' ||
-      PRIVATE_V4.test(h) ||
+      isPrivateV4(h) ||
       h.endsWith('.local') ||
       h.endsWith('.lan')
     if (!local) throw new Error(tr(S).httpsRequired)
@@ -158,6 +173,7 @@ class SyncService extends EventEmitter {
     return {
       connected: !!s.token,
       serverUrl: s.serverUrl,
+      userId: s.userId,
       username: s.username,
       isAdmin: s.isAdmin,
       lastSyncAt: s.lastSyncAt,
@@ -322,9 +338,43 @@ class SyncService extends EventEmitter {
     return this.call('DELETE', `/devices/${encodeURIComponent(id)}`)
   }
 
+  // ── server administration ─────────────────────────────────────────────
+
+  adminOverview(): Promise<AdminOverview> {
+    return this.call('GET', '/admin')
+  }
+
+  adminSetSignup(mode: SignupMode | null): Promise<void> {
+    return this.call('PUT', '/admin/signup', { mode })
+  }
+
+  adminCreateInvite(
+    hours: number,
+    note: string
+  ): Promise<{ id: string; code: string; expiresAt: number }> {
+    return this.call('POST', '/admin/invites', { hours, note })
+  }
+
+  adminRevokeInvite(id: string): Promise<void> {
+    return this.call('DELETE', `/admin/invites/${encodeURIComponent(id)}`)
+  }
+
+  adminDeleteUser(userId: string): Promise<void> {
+    return this.call('DELETE', `/admin/users/${encodeURIComponent(userId)}`)
+  }
+
+  adminRevokeDevices(userId: string): Promise<void> {
+    return this.call('DELETE', `/admin/users/${encodeURIComponent(userId)}/devices`)
+  }
+
+  async adminSetAdmin(userId: string, isAdmin: boolean): Promise<void> {
+    await this.call('PUT', `/admin/users/${encodeURIComponent(userId)}/admin`, { isAdmin })
+  }
+
   // ── teams ─────────────────────────────────────────────────────────────
 
   async createTeam(name: string): Promise<void> {
+    name = name.trim()
     const s = vault.get().settings.sync
     const key = randomKey()
     const r = await this.call<{ id: string }>('POST', '/teams', {
@@ -374,7 +424,10 @@ class SyncService extends EventEmitter {
 
   async removeMember(teamId: string, userId: string): Promise<void> {
     await this.call('DELETE', `/teams/${teamId}/members/${userId}`)
-    if (userId === vault.get().settings.sync.userId) vault.purgeTeam(teamId)
+    if (userId === vault.get().settings.sync.userId) {
+      vault.purgeTeam(teamId)
+      this.emit('status', this.status())
+    }
   }
 
   async deleteTeam(teamId: string): Promise<void> {
@@ -403,7 +456,12 @@ class SyncService extends EventEmitter {
         local.role = rt.role
         continue
       }
-      const key = openSealed(priv, rt.wrappedTeamKey)
+      let key: Uint8Array
+      try {
+        key = openSealed(priv, rt.wrappedTeamKey)
+      } catch {
+        continue // sealed to a different key; skip this team instead of failing the whole sync
+      }
       d.teams.push({ id: rt.id, label: rt.name, key: b64(key), role: rt.role })
       joined.push(rt.id)
     }
@@ -445,7 +503,13 @@ class SyncService extends EventEmitter {
       if (!payload || !SYNCED_COLLECTIONS.includes(payload.c)) continue
       if (!r.deleted && (!payload.e || typeof payload.e !== 'object')) continue
       const local = (d[payload.c] as Entity[]).find((e) => e.id === r.id)
-      if (local && local.updatedAt >= r.updatedAt) continue
+      if (local && local.updatedAt >= r.updatedAt) {
+        // The server already holds exactly our version (e.g. a push whose reply was lost):
+        // remember that, or push() would resend it on every sync forever.
+        if (local.updatedAt === r.updatedAt && this.scopeOf(local) === r.scope)
+          d.syncState[r.id] = { t: r.updatedAt, s: r.scope }
+        continue
+      }
       // Where a record lives is decided by its scope, never by what the payload claims.
       const teamId = r.scope.startsWith('t:') ? r.scope.slice(2) : undefined
       const entity: Entity =

@@ -5,6 +5,7 @@ import { useT, fmt } from '../i18n'
 import { useStore } from '../store'
 import { Field } from '../components/ui'
 import { confirmDialog, promptDialog, promptOne, timeAgo } from '../lib'
+import { SyncAdmin } from './SyncAdmin'
 
 const S = {
   id: {
@@ -19,7 +20,7 @@ const S = {
     serverOk: 'Server menjawab. %s akun terdaftar;',
     signupOpen: 'pendaftaran terbuka.',
     signupInvite: 'pendaftaran butuh kode undangan.',
-    signupClosed: 'pendaftaran ditutup, minta admin server.',
+    signupClosed: 'pendaftaran ditutup oleh admin server.',
     login: 'Masuk',
     registerTab: 'Daftar akun baru',
     username: 'Username',
@@ -28,6 +29,7 @@ const S = {
       'Berbeda dari master password vault. Minimal 10 karakter. Kalau lupa, data di server tidak bisa dipulihkan siapa pun, termasuk admin.',
     accountPw2: 'Ulangi password akun',
     inviteCode: 'Kode undangan',
+    inviteCodeHint: 'Minta ke admin server. Kosongkan kalau server membuka pendaftaran.',
     busy: 'Memproses (menghitung kunci, beberapa detik)',
     registerSync: 'Daftar dan sinkronkan',
     loginSync: 'Masuk dan sinkronkan',
@@ -110,7 +112,7 @@ const S = {
     serverOk: 'Server responded. Accounts: %s;',
     signupOpen: 'sign-up is open.',
     signupInvite: 'sign-up requires an invite code.',
-    signupClosed: 'sign-up is closed; ask the server admin.',
+    signupClosed: 'sign-up has been closed by the server admin.',
     login: 'Log in',
     registerTab: 'Register new account',
     username: 'Username',
@@ -119,6 +121,7 @@ const S = {
       'Different from the vault master password. Minimum 10 characters. If you forget it, no one can recover the data on the server, not even the admin.',
     accountPw2: 'Repeat account password',
     inviteCode: 'Invite code',
+    inviteCodeHint: 'Ask the server admin. Leave empty if the server has open sign-up.',
     busy: 'Working (deriving keys, a few seconds)',
     registerSync: 'Register and sync',
     loginSync: 'Log in and sync',
@@ -207,17 +210,29 @@ function Connect({ onDone }: { onDone(): void }): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const check = async (): Promise<void> => {
-    setError(null)
+  const check = useCallback(
+    async (quiet = false): Promise<void> => {
+      if (!quiet) setError(null)
+      setInfo(null)
+      try {
+        const i = await api.syncServerInfo(url)
+        setInfo(i)
+        if (i.users === 0) setMode('register')
+      } catch (e) {
+        if (!quiet) setError(errMsg(e))
+      }
+    },
+    [url]
+  )
+
+  // Look the server up while the address is typed, so the form knows whether sign-up
+  // needs an invite code; info for a previous address must never linger.
+  useEffect(() => {
     setInfo(null)
-    try {
-      const i = await api.syncServerInfo(url)
-      setInfo(i)
-      if (i.users === 0) setMode('register')
-    } catch (e) {
-      setError(errMsg(e))
-    }
-  }
+    if (!url.trim()) return
+    const timer = setTimeout(() => void check(true), 600)
+    return () => clearTimeout(timer)
+  }, [url, check])
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -226,10 +241,11 @@ function Connect({ onDone }: { onDone(): void }): React.JSX.Element {
       if (password.length < 10) return setError(t.pwMin)
       if (password !== password2) return setError(t.pwMismatch)
     }
+    if (mode === 'register' && info?.signup === 'closed') return setError(t.signupClosed)
     setBusy(true)
     try {
       if (mode === 'register')
-        await api.syncRegister(url, username.trim(), password, invite || undefined)
+        await api.syncRegister(url, username.trim(), password, invite.trim() || undefined)
       else await api.syncLogin(url, username.trim(), password)
       toast(mode === 'register' ? t.registeredToast : t.loginToast)
       onDone()
@@ -254,7 +270,7 @@ function Connect({ onDone }: { onDone(): void }): React.JSX.Element {
             placeholder="https://termos.example.com"
             autoFocus
           />
-          <button type="button" className="btn" onClick={check} disabled={!url.trim()}>
+          <button type="button" className="btn" onClick={() => void check()} disabled={!url.trim()}>
             {t.checkServer}
           </button>
         </div>
@@ -318,9 +334,14 @@ function Connect({ onDone }: { onDone(): void }): React.JSX.Element {
               autoComplete="new-password"
             />
           </Field>
-          {info?.signup === 'invite' && (
-            <Field label={t.inviteCode}>
-              <input className="input" value={invite} onChange={(e) => setInvite(e.target.value)} />
+          {info?.signup !== 'open' && (
+            <Field label={t.inviteCode} hint={info ? undefined : t.inviteCodeHint}>
+              <input
+                className="input mono"
+                value={invite}
+                onChange={(e) => setInvite(e.target.value)}
+                autoComplete="off"
+              />
             </Field>
           )}
         </>
@@ -437,10 +458,7 @@ function Teams({ status }: { status: SyncStatus }): React.JSX.Element {
                           )
                           if (ok)
                             await run(async () => {
-                              const self = (await api.teamMembers(team.id)).find(
-                                (m) => m.username === status.username
-                              )
-                              if (self) await api.teamRemoveMember(team.id, self.userId)
+                              if (status.userId) await api.teamRemoveMember(team.id, status.userId)
                             }, t.leaveTeam)
                         }}
                       >
@@ -662,6 +680,8 @@ export function SyncView(): React.JSX.Element {
               </tbody>
             </table>
           )}
+
+          {status.isAdmin && <SyncAdmin />}
 
           <h2 className="section-title">{t.account}</h2>
           <div className="row">

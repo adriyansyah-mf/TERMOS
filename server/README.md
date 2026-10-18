@@ -36,15 +36,26 @@ Jalankan di LXC atau VM, lalu pakai profil `https` atau reverse proxy yang sudah
 
 | Variabel | Default | Arti |
 |---|---|---|
-| `TERMOS_SIGNUP` | `first` | `first`: hanya akun pertama yang boleh daftar dan jadi admin. `invite`: daftar butuh `TERMOS_INVITE_CODE` (min. 16 karakter). `open`: siapa pun yang bisa mengakses server |
-| `TERMOS_INVITE_CODE` | acak dari `setup.sh` | Kode undangan untuk mode `invite` |
+| `TERMOS_SIGNUP` | `first` | `first`: akun pertama daftar bebas dan jadi admin; sesudahnya daftar butuh undangan dari admin. `invite`: daftar butuh undangan atau `TERMOS_INVITE_CODE` (min. 16 karakter). `open`: siapa pun yang bisa mengakses server. Admin bisa menimpa nilai ini dari aplikasi tanpa restart |
+| `TERMOS_INVITE_CODE` | acak dari `setup.sh` | Kode undangan yang bisa dipakai berulang, hanya di mode `invite` |
 | `TERMOS_DOMAIN` | | Domain untuk profil `https` |
 | `TERMOS_PORT` | `8080` | Port API di 127.0.0.1 |
 | `TERMOS_TOKEN_IDLE_DAYS` | `90` | Token perangkat kedaluwarsa setelah selama ini tidak dipakai |
 | `TERMOS_MAX_RECORDS` / `TERMOS_MAX_MB` | `20000` / `256` | Kuota per vault (pribadi atau tim) |
 | `TERMOS_SIGNUP_PER_HOUR` | `10` | Batas percobaan daftar per IP per jam |
 
-Alur umum untuk tim kecil: mulai dengan `first`, buat akunmu dari aplikasi, ganti ke `invite`, `docker compose up -d`, lalu bagikan kode undangannya.
+Alur umum untuk tim kecil: biarkan `first`, buat akunmu dari aplikasi (otomatis jadi admin), lalu buka **Sync & tim > Admin server** untuk membuat undangan.
+
+### Admin server
+
+Bagian **Admin server** di menu Sync & tim muncul untuk akun admin. Dari sana admin bisa:
+
+- mengatur pendaftaran saat server berjalan: ikuti `TERMOS_SIGNUP`, terbuka, undangan, atau ditutup total;
+- membuat undangan sekali pakai dengan masa berlaku 1-720 jam. Kodenya tampil sekali saja; server hanya menyimpan hash-nya;
+- melihat pengguna: perangkat, terakhir aktif, dan pemakaian vault pribadi (jumlah item dan ukuran, bukan isinya);
+- mengeluarkan pengguna dari semua perangkat, menjadikan atau mencabut admin, dan menghapus akun.
+
+Admin terakhir tidak bisa menghapus akunnya sendiri selama masih ada pengguna lain, dan tidak bisa mencabut admin dari dirinya sendiri. API-nya ada di `/api/admin/*` dan menolak semua akun non-admin dengan 403.
 
 ## Backup
 

@@ -233,7 +233,7 @@ Untuk akses dari internet dengan HTTPS otomatis, isi `TERMOS_DOMAIN` di `.env` l
 docker compose --profile https up -d --build
 ```
 
-Akun pertama yang mendaftar menjadi admin, lalu pendaftaran tertutup (bisa diubah ke mode undangan). Detail pengaturan, backup, dan update ada di [`server/README.md`](server/README.md).
+Akun pertama yang mendaftar menjadi admin. Sesudahnya orang lain daftar dengan undangan sekali pakai yang dibuat admin di **Sync & tim > Admin server**. Detail pengaturan, backup, dan update ada di [`server/README.md`](server/README.md).
 
 ## Pintasan keyboard
 

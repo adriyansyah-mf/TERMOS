@@ -272,7 +272,15 @@ class Vault extends EventEmitter {
   changed(): void {
     this.emit('changed')
     if (this.saveTimer) clearTimeout(this.saveTimer)
-    this.saveTimer = setTimeout(() => this.flush(), 300)
+    this.saveTimer = setTimeout(() => {
+      // Runs outside any caller: a write error (disk full, permissions) must not crash the
+      // app. The data stays in memory and the next change or lock retries the write.
+      try {
+        this.flush()
+      } catch (err) {
+        console.error('vault: save failed:', err)
+      }
+    }, 300)
   }
 
   flush(): void {

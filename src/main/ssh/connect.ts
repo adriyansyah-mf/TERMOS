@@ -22,11 +22,13 @@ import { fmt, tr } from '../i18n'
 const S = {
   id: {
     hostNotFound: 'Host %s tidak ditemukan',
-    proxyRefused: 'Proxy HTTP menolak CONNECT: %s'
+    proxyRefused: 'Proxy HTTP menolak CONNECT: %s',
+    proxyTimeout: 'Proxy HTTP tidak menjawab'
   },
   en: {
     hostNotFound: 'Host %s not found',
-    proxyRefused: 'HTTP proxy refused CONNECT: %s'
+    proxyRefused: 'HTTP proxy refused CONNECT: %s',
+    proxyTimeout: 'HTTP proxy did not respond'
   }
 }
 
@@ -102,6 +104,8 @@ export async function knock(address: string, steps: KnockStep[]): Promise<void> 
 
 async function httpConnect(p: ProxyDef, host: string, port: number): Promise<Socket> {
   const sock = netConnect({ host: p.host, port: p.port })
+  sock.on('error', () => {})
+  sock.setTimeout(20000, () => sock.destroy(new Error(tr(S).proxyTimeout)))
   await new Promise<void>((res, rej) => {
     sock.once('connect', res)
     sock.once('error', rej)
@@ -129,6 +133,7 @@ async function httpConnect(p: ProxyDef, host: string, port: number): Promise<Soc
     sock.destroy()
     throw new Error(fmt(tr(S).proxyRefused, head.split('\r\n')[0]))
   }
+  sock.setTimeout(0)
   return sock
 }
 
@@ -284,12 +289,13 @@ function connectHop(
                 return finish([r.password])
               }
               ctx
-                .ask<string[]>({
+                .ask<string[] | null>({
                   type: 'prompt',
                   title: instructions || `${r.username}@${host.address}`,
                   prompts
                 })
-                .then(finish)
+                // Cancelled (or the tab was closed): answer with nothing, never null.
+                .then((ans) => finish(ans ?? []))
             }
           } as never)
         }
@@ -314,6 +320,9 @@ function connectHop(
   }
 
   return new Promise((resolve, reject) => {
+    // Permanent listener: a second 'error' (after the first was handled) must never become
+    // an uncaught exception in the main process. Callers add their own reporting on top.
+    client.on('error', () => {})
     client.once('ready', () => resolve(client))
     client.once('error', (err) => reject(err))
     client.connect(cfg)

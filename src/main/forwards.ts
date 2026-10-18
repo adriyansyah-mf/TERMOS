@@ -54,11 +54,14 @@ class Forwards extends EventEmitter {
     let conn = existing
     try {
       if (!conn) {
-        const host = vault.find<Host>('hosts', rule.hostId)
+        if (!vault.find<Host>('hosts', rule.hostId)) throw new Error(tr(S).hostNotFound)
+        // A hidden session context lets host-key and password prompts reach the renderer.
         const ctx = sessions.create(`forward:${rule.label}`, rule.hostId)
-        conn = await connectSsh(rule.hostId, ctx)
-        sessions.close(ctx.id)
-        if (!host) throw new Error(tr(S).hostNotFound)
+        try {
+          conn = await connectSsh(rule.hostId, ctx)
+        } finally {
+          sessions.close(ctx.id)
+        }
       }
       const running = await this.open(rule, conn, !existing)
       this.running.set(ruleId, running)
@@ -118,6 +121,8 @@ class Forwards extends EventEmitter {
     if (rule.type === 'local') {
       if (!rule.destHost || !rule.destPort) throw new Error(tr(S).destMissing)
       const server = createServer((sock) => {
+        // Listen before forwardOut answers: a client reset in that window must not throw.
+        sock.on('error', () => sock.destroy())
         client.forwardOut(
           sock.remoteAddress ?? '127.0.0.1',
           sock.remotePort ?? 0,
@@ -128,12 +133,14 @@ class Forwards extends EventEmitter {
               sock.destroy()
               return
             }
+            if (sock.destroyed) return void ch.close()
             sock.pipe(ch).pipe(sock)
             ch.on('error', () => sock.destroy())
-            sock.on('error', () => ch.close())
+            sock.on('close', () => ch.close())
           }
         )
       })
+      server.on('error', () => {})
       await this.listen(server, rule)
       return finish(server)
     }
@@ -215,6 +222,7 @@ function socks5(sock: Socket, client: SshConnection['client']): void {
       sock.pause()
       client.forwardOut('127.0.0.1', 0, host, port, (err, ch) => {
         if (err) return fail(5)
+        if (sock.destroyed) return void ch.close()
         sock.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]))
         if (rest.length) ch.write(rest)
         sock.pipe(ch).pipe(sock)

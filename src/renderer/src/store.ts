@@ -73,6 +73,18 @@ let toastSeq = 0
 /** Status events can beat sessionOpen's reply; keep the latest one per session. */
 const lastStatus = new Map<string, { status: SessionStatus; message?: string }>()
 const DEFAULT_SIZE = { cols: 100, rows: 30 }
+/** Hidden sessions (SFTP, forwards) never mount a terminal; do not hoard their output. */
+const EARLY_MAX = 256 * 1024
+
+/** Forget per-session bookkeeping once a session is closed. */
+function forget(sessionIds: string[]): (s: State) => Partial<State> {
+  for (const id of sessionIds) {
+    lastStatus.delete(id)
+    earlyOutput.delete(id)
+  }
+  // Prompts for a closed session can no longer be answered meaningfully.
+  return (s: State) => ({ requests: s.requests.filter((r) => !sessionIds.includes(r.sessionId)) })
+}
 
 export const useStore = create<State>((set, get) => ({
   status: null,
@@ -131,17 +143,17 @@ export const useStore = create<State>((set, get) => ({
 
   closePane: (tabId, sessionId) => {
     void api.sessionClose(sessionId)
+    set(forget([sessionId]))
     set((s) => {
       const tabs = s.tabs
-        .map((t) =>
-          t.id === tabId
-            ? {
-                ...t,
-                panes: t.panes.filter((p) => p.sessionId !== sessionId),
-                focused: 0
-              }
-            : t
-        )
+        .map((t) => {
+          if (t.id !== tabId) return t
+          const i = t.panes.findIndex((p) => p.sessionId === sessionId)
+          const panes = t.panes.filter((p) => p.sessionId !== sessionId)
+          // Keep focus on the same pane when another one closes.
+          const focused = t.focused > i ? t.focused - 1 : Math.min(t.focused, panes.length - 1)
+          return { ...t, panes, focused: Math.max(0, focused) }
+        })
         .filter((t) => t.panes.length > 0)
       const activeTab = tabs.some((t) => t.id === s.activeTab)
         ? s.activeTab
@@ -153,6 +165,7 @@ export const useStore = create<State>((set, get) => ({
   closeTab: (tabId) => {
     const tab = get().tabs.find((t) => t.id === tabId)
     for (const p of tab?.panes ?? []) void api.sessionClose(p.sessionId)
+    set(forget(tab?.panes.map((p) => p.sessionId) ?? []))
     set((s) => {
       const i = s.tabs.findIndex((t) => t.id === tabId)
       const tabs = s.tabs.filter((t) => t.id !== tabId)
@@ -166,6 +179,7 @@ export const useStore = create<State>((set, get) => ({
     const pane = tab?.panes.find((p) => p.sessionId === sessionId)
     if (!tab || !pane) return
     void api.sessionClose(sessionId)
+    set(forget([sessionId]))
     try {
       const { sessionId: newId } = await api.sessionOpen({ target: pane.target, ...DEFAULT_SIZE })
       set((s) => ({
@@ -243,7 +257,11 @@ export function initEvents(): void {
     if (ev.type === 'data') {
       const fn = outputListeners.get(ev.sessionId)
       if (fn) fn(ev.data)
-      else earlyOutput.set(ev.sessionId, (earlyOutput.get(ev.sessionId) ?? '') + ev.data)
+      else
+        earlyOutput.set(
+          ev.sessionId,
+          ((earlyOutput.get(ev.sessionId) ?? '') + ev.data).slice(-EARLY_MAX)
+        )
       return
     }
     if (ev.type === 'status') {

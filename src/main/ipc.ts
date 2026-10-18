@@ -99,6 +99,14 @@ const handlers: Handlers = {
   teamRemoveMember: (id, userId) => sync.removeMember(id, userId),
   teamDelete: (id) => sync.deleteTeam(id),
 
+  adminOverview: () => sync.adminOverview(),
+  adminSetSignup: (mode) => sync.adminSetSignup(mode),
+  adminCreateInvite: (hours, note) => sync.adminCreateInvite(hours, note),
+  adminRevokeInvite: (id) => sync.adminRevokeInvite(id),
+  adminDeleteUser: (id) => sync.adminDeleteUser(id),
+  adminRevokeDevices: (id) => sync.adminRevokeDevices(id),
+  adminSetAdmin: (id, on) => sync.adminSetAdmin(id, on),
+
   shareStart: (id, allow) => sharing.start(id, allow),
   shareStop: (id) => sharing.stop(id),
   shareSetInput: (id, allow) => sharing.setAllowInput(id, allow),
@@ -106,7 +114,11 @@ const handlers: Handlers = {
   shareList: () => sharing.list(),
 
   sessionOpen: (req) => openSession(req),
-  sessionClose: (id) => sessions.close(id),
+  sessionClose: (id) => {
+    // Viewers of a closed terminal would otherwise stay connected to nothing.
+    sharing.stop(id)
+    sessions.close(id)
+  },
   sessionAnswer: (rid, v) => sessions.answer(rid, v),
   serialPorts: () => listSerialPorts(),
 

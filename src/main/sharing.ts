@@ -19,7 +19,8 @@ const S = {
     watchingNote:
       '\x1b[90m[menonton sesi bersama; ketikan hanya diteruskan bila host mengizinkan]\x1b[0m\r\n',
     hostEnded: '\r\n\x1b[90m[host mengakhiri sesi bersama]\x1b[0m\r\n',
-    disconnected: 'terputus'
+    disconnected: 'terputus',
+    sessionGone: 'Sesi terminal sudah ditutup'
   },
   en: {
     loginFirst: 'Sign in to the sync server first (Sync & team menu) to share a session',
@@ -32,7 +33,8 @@ const S = {
     watchingNote:
       '\x1b[90m[watching a shared session; keystrokes are only forwarded if the host allows]\x1b[0m\r\n',
     hostEnded: '\r\n\x1b[90m[host ended the shared session]\x1b[0m\r\n',
-    disconnected: 'disconnected'
+    disconnected: 'disconnected',
+    sessionGone: 'The terminal session is already closed'
   }
 }
 
@@ -80,6 +82,8 @@ function parse(raw: unknown): Record<string, unknown> | null {
 
 class Sharing extends EventEmitter {
   private shares = new Map<string, ActiveShare>()
+  /** Starts in flight, so a double click does not open two relay connections. */
+  private starting = new Map<string, Promise<ShareInfo>>()
 
   list(): ShareInfo[] {
     return [...this.shares.values()].map(({ sessionId, link, allowInput, viewers }) => ({
@@ -94,9 +98,17 @@ class Sharing extends EventEmitter {
     this.emit('status', this.list())
   }
 
-  async start(sessionId: string, allowInput: boolean): Promise<ShareInfo> {
+  start(sessionId: string, allowInput: boolean): Promise<ShareInfo> {
     const existing = this.shares.get(sessionId)
-    if (existing) return this.list().find((s) => s.sessionId === sessionId)!
+    if (existing) return Promise.resolve(this.list().find((s) => s.sessionId === sessionId)!)
+    const pending = this.starting.get(sessionId)
+    if (pending) return pending
+    const p = this.open(sessionId, allowInput).finally(() => this.starting.delete(sessionId))
+    this.starting.set(sessionId, p)
+    return p
+  }
+
+  private async open(sessionId: string, allowInput: boolean): Promise<ShareInfo> {
     const { serverUrl, token } = account()
     const key = new Uint8Array(randomBytes(32))
     const ws = new WebSocket(wsUrl(serverUrl, '/api/share/host'), {
@@ -104,15 +116,22 @@ class Sharing extends EventEmitter {
       maxPayload: 1024 * 1024
     })
     const shareId = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(tr(S).serverNoAnswer)), 15000)
-      ws.once('error', (err) => {
+      const fail = (err: Error): void => {
         clearTimeout(timer)
-        reject(new Error(fmt(tr(S).relayConnectFailed, err.message)))
-      })
-      ws.once('unexpected-response', (_req, res) => {
-        clearTimeout(timer)
-        reject(new Error(fmt(tr(S).relayRefused, String(res.statusCode))))
-      })
+        ws.removeAllListeners('message')
+        ws.terminate()
+        reject(err)
+      }
+      const timer = setTimeout(() => fail(new Error(tr(S).serverNoAnswer)), 15000)
+      ws.once('error', (err) => fail(new Error(fmt(tr(S).relayConnectFailed, err.message))))
+      ws.once('unexpected-response', (_req, res) =>
+        fail(new Error(fmt(tr(S).relayRefused, String(res.statusCode))))
+      )
+      // The relay can accept the socket and then refuse the share (e.g. too many active
+      // shares); surface its reason instead of waiting for the timeout.
+      ws.once('close', (_code, reason) =>
+        fail(new Error(reason.toString().slice(0, 200) || tr(S).serverNoAnswer))
+      )
       ws.on('message', (raw) => {
         const msg = parse(raw)
         if (
@@ -121,10 +140,17 @@ class Sharing extends EventEmitter {
           /^[\w-]{16,40}$/.test(msg.shareId)
         ) {
           clearTimeout(timer)
+          ws.removeAllListeners('close')
+          ws.removeAllListeners('message')
           resolve(msg.shareId)
         }
       })
     })
+    // The session may have been closed while we waited for the relay.
+    if (!sessions.has(sessionId)) {
+      ws.close()
+      throw new Error(tr(S).sessionGone)
+    }
     ws.on('error', () => {
       /* reported through 'close' */
     })
@@ -149,13 +175,14 @@ class Sharing extends EventEmitter {
       if (!msg) return
       if (msg.t === 'joined' && typeof msg.viewer === 'string') {
         share.viewers.push({ id: msg.viewer, username: String(msg.username ?? '?').slice(0, 64) })
-        ws.send(
-          JSON.stringify({
-            t: 'to',
-            viewer: msg.viewer,
-            data: codec.encode('h2v', HOST, share.backlog)
-          })
-        )
+        if (ws.readyState === ws.OPEN)
+          ws.send(
+            JSON.stringify({
+              t: 'to',
+              viewer: msg.viewer,
+              data: codec.encode('h2v', HOST, share.backlog)
+            })
+          )
         this.changed()
       } else if (msg.t === 'left') {
         share.viewers = share.viewers.filter((v) => v.id !== msg.viewer)
@@ -184,7 +211,8 @@ class Sharing extends EventEmitter {
   }
 
   kick(sessionId: string, viewer: string): void {
-    this.shares.get(sessionId)?.ws.send(JSON.stringify({ t: 'kick', viewer }))
+    const s = this.shares.get(sessionId)
+    if (s?.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ t: 'kick', viewer }))
   }
 
   stop(sessionId: string): void {

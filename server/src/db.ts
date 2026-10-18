@@ -97,6 +97,20 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (scope, id)
   );
   CREATE INDEX records_scope_seq ON records (scope, seq);
+  `,
+  `
+  -- Single-use sign-up codes issued by a server admin. Only a hash of the code is kept.
+  -- "Used" is used_at, not a user reference: deleting the account must not revive the code.
+  CREATE TABLE invites (
+    id            UUID PRIMARY KEY,
+    code_hash     TEXT NOT NULL UNIQUE,
+    note          TEXT NOT NULL DEFAULT '',
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    BIGINT NOT NULL,
+    expires_at    BIGINT NOT NULL,
+    used_at       BIGINT,
+    used_username TEXT
+  );
   `
 ]
 
