@@ -1,10 +1,10 @@
-import { readdirSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { mkdirSync, readdirSync, statSync } from 'node:fs'
+import { basename, join, resolve, sep } from 'node:path'
 import type { SFTPWrapper, Stats } from 'ssh2'
 import { posix } from 'node:path'
 import { newId } from '../shared/merge'
 import type { Host, SftpEntry } from '../shared/types'
-import { tr } from './i18n'
+import { fmt, tr } from './i18n'
 import { connectSsh, type SshConnection } from './ssh/connect'
 import { sessions } from './sessions/manager'
 import { vault } from './vault'
@@ -13,12 +13,14 @@ const S = {
   id: {
     hostNotFound: 'Host tidak ditemukan',
     sessionClosed: 'Sesi SFTP sudah tertutup',
-    fileTooLarge: 'File terlalu besar untuk dibuka di editor (> 2 MB)'
+    fileTooLarge: 'File terlalu besar untuk dibuka di editor (> 2 MB)',
+    badName: 'Nama file dari server tidak aman, dilewati: %s'
   },
   en: {
     hostNotFound: 'Host not found',
     sessionClosed: 'SFTP session is already closed',
-    fileTooLarge: 'File too large to open in the editor (> 2 MB)'
+    fileTooLarge: 'File too large to open in the editor (> 2 MB)',
+    badName: 'Unsafe file name from the server, skipped: %s'
   }
 }
 
@@ -54,7 +56,14 @@ class SftpManager {
     const ctx = sessions.create(`sftp:${host.label}`, hostId)
     try {
       const conn = await connectSsh(hostId, ctx)
-      const sftp = await p<SFTPWrapper>((cb) => conn.client.sftp(cb))
+      let sftp: SFTPWrapper
+      try {
+        sftp = await p<SFTPWrapper>((cb) => conn.client.sftp(cb))
+      } catch (err) {
+        // e.g. the server has no sftp subsystem: do not leave the SSH connection open.
+        conn.close()
+        throw err
+      }
       const sftpId = newId()
       this.open.set(sftpId, { conn, sftp })
       conn.client.once('close', () => this.open.delete(sftpId))
@@ -184,9 +193,19 @@ class SftpManager {
 
   async download(id: string, remote: string, localDir: string, isDir: boolean): Promise<void> {
     const { sftp } = this.get(id)
-    const target = join(localDir, posix.basename(remote))
+    // File names come from the server. On Windows a backslash is a separator that
+    // posix.basename keeps, so "..\\x" would escape the chosen folder; refuse such names.
+    const name = posix.basename(remote)
+    const target = join(localDir, name)
+    if (
+      !name ||
+      name === '.' ||
+      name === '..' ||
+      (process.platform === 'win32' ? /[\\/\0]/ : /[/\0]/).test(name) ||
+      !resolve(target).startsWith(resolve(localDir) + sep)
+    )
+      throw new Error(fmt(tr(S).badName, name))
     if (isDir) {
-      const { mkdirSync } = await import('node:fs')
       mkdirSync(target, { recursive: true })
       for (const e of await this.list(id, remote)) {
         if (e.isLink) continue

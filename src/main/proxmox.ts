@@ -200,7 +200,17 @@ export class ProxmoxClient {
   }
 
   async request<T>(method: string, path: string, body?: Body): Promise<T> {
-    return this.raw<T>(method, path, body, await this.authHeaders(method))
+    try {
+      return await this.raw<T>(method, path, body, await this.authHeaders(method))
+    } catch (err) {
+      // A cached ticket can be invalidated early (node restart, logout elsewhere):
+      // log in again once instead of failing until the cache expires.
+      if (this.server.authType === 'password' && /^HTTP 401\b/.test((err as Error).message)) {
+        tickets.delete(this.server.id)
+        return this.raw<T>(method, path, body, await this.authHeaders(method))
+      }
+      throw err
+    }
   }
 
   version(): Promise<{ version: string; release: string }> {

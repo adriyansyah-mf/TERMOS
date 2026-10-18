@@ -106,7 +106,11 @@ const handlers: Handlers = {
   shareList: () => sharing.list(),
 
   sessionOpen: (req) => openSession(req),
-  sessionClose: (id) => sessions.close(id),
+  sessionClose: (id) => {
+    // Viewers of a closed terminal would otherwise stay connected to nothing.
+    sharing.stop(id)
+    sessions.close(id)
+  },
   sessionAnswer: (rid, v) => sessions.answer(rid, v),
   serialPorts: () => listSerialPorts(),
 

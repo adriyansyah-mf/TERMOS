@@ -164,7 +164,8 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
     )
     const off = bridge.on('sftp:progress', (p) => {
       setTransfers((tr) => ({ ...tr, [p.transferId]: p }))
-      if (p.finished && !p.error)
+      // Successful transfers clear quickly; failures stay long enough to be read.
+      if (p.finished)
         setTimeout(
           () =>
             setTransfers((tr) => {
@@ -172,7 +173,7 @@ export function SftpPanel(props: { hostId: string; onClose(): void }): React.JSX
               delete n[p.transferId]
               return n
             }),
-          2500
+          p.error ? 10000 : 2500
         )
     })
     return () => {

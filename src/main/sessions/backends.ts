@@ -21,7 +21,8 @@ const S = {
     hostNotFound: 'Host tidak ditemukan',
     session: 'Sesi',
     shared: 'Sesi bersama',
-    unsupported: 'Jenis sesi ini belum didukung'
+    unsupported: 'Jenis sesi ini belum didukung',
+    telnetTimeout: 'Waktu habis saat menghubungi host'
   },
   en: {
     procDone: '\r\n\x1b[90m[process finished, code %s]\x1b[0m\r\n',
@@ -29,7 +30,8 @@ const S = {
     hostNotFound: 'Host not found',
     session: 'Session',
     shared: 'Shared session',
-    unsupported: 'This session type is not supported yet'
+    unsupported: 'This session type is not supported yet',
+    telnetTimeout: 'Timed out connecting to the host'
   }
 }
 
@@ -308,7 +310,12 @@ function telnetBackend(
       if (out.length) ctx.emitData(decode(Buffer.from(out)))
     }
 
+    // A host that drops SYNs would otherwise leave the tab "connecting" for minutes.
+    sock.setTimeout(20000, () => sock.destroy(new Error(tr(S).telnetTimeout)))
+    let connected = false
     sock.once('connect', () => {
+      connected = true
+      sock.setTimeout(0)
       sock.on('data', handle)
       resolve({
         write: (d) => {
@@ -324,8 +331,8 @@ function telnetBackend(
         close: () => sock.destroy()
       })
     })
-    sock.once('error', reject)
-    sock.on('close', () => ctx.setStatus('closed'))
+    sock.on('error', (err) => (connected ? ctx.setStatus('error', err.message) : reject(err)))
+    sock.on('close', () => connected && ctx.setStatus('closed'))
   })
 }
 

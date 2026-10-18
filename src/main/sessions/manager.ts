@@ -38,7 +38,7 @@ const PASSWORD_PROMPT = /(password|passphrase|pin|verification code|otp)[^\n]*:\
 
 class SessionManager {
   private sessions = new Map<string, Session>()
-  private pending = new Map<string, (answer: unknown) => void>()
+  private pending = new Map<string, { sessionId: string; resolve: (answer: unknown) => void }>()
   private web: WebContents | null = null
 
   attach(web: WebContents): void {
@@ -70,7 +70,7 @@ class SessionManager {
       ask: <T>(event) =>
         new Promise<T>((resolve) => {
           const requestId = newId()
-          this.pending.set(requestId, resolve as (a: unknown) => void)
+          this.pending.set(requestId, { sessionId: id, resolve: resolve as (a: unknown) => void })
           this.send({ ...event, sessionId: id, requestId } as SessionEvent)
         })
     }
@@ -97,9 +97,13 @@ class SessionManager {
   }
 
   answer(requestId: string, value: unknown): void {
-    const fn = this.pending.get(requestId)
+    const p = this.pending.get(requestId)
     this.pending.delete(requestId)
-    fn?.(value)
+    p?.resolve(value)
+  }
+
+  has(id: string): boolean {
+    return this.sessions.has(id)
   }
 
   write(id: string, data: string): void {
@@ -117,6 +121,12 @@ class SessionManager {
     const s = this.sessions.get(id)
     if (!s) return
     this.sessions.delete(id)
+    // A connect still waiting on a host-key or password prompt gets "no" and gives up.
+    for (const [rid, p] of this.pending)
+      if (p.sessionId === id) {
+        this.pending.delete(rid)
+        p.resolve(null)
+      }
     s.backend?.close()
     s.log?.end()
   }
